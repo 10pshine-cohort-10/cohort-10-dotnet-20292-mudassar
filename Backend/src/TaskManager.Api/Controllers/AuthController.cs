@@ -32,6 +32,13 @@ public class AuthController(IAuthService auth, ILogger<AuthController> log) : Co
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<UserInfoDto>> Me() => Ok(await auth.GetCurrentAsync(User.GetUserId()));
 
+    [HttpPut("me"), Authorize]
+    [ProducesResponseType<UserInfoDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<UserInfoDto>> UpdateMe(UpdateProfileDto dto)
+        => Ok(await auth.UpdateProfileAsync(User.GetUserId(), dto));
+
     [HttpPost("logout"), Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public IActionResult Logout()

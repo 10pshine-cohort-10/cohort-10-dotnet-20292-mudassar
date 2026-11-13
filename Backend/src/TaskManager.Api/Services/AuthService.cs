@@ -10,6 +10,7 @@ public interface IAuthService
     Task<UserInfoDto> RegisterAsync(RegisterDto dto);
     Task<AuthResponse> LoginAsync(LoginDto dto);
     Task<UserInfoDto> GetCurrentAsync(Guid userId);
+    Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto);
 }
 
 public class AuthService(
@@ -89,6 +90,24 @@ public class AuthService(
         }
 
         log.LogDebug("Fetched current profile for user {UserId}", userId);
+        return new UserInfoDto(user.Id, user.FullName, user.Email!, await users.GetRolesAsync(user));
+    }
+
+    public async Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto)
+    {
+        var user = await users.FindByIdAsync(userId.ToString());
+        if (user is null)
+        {
+            log.LogWarning("Profile update failed: user {UserId} was not found", userId);
+            throw new NotFoundException("User was not found.");
+        }
+
+        user.FullName = dto.FullName.Trim();
+        var result = await users.UpdateAsync(user);
+        if (!result.Succeeded)
+            throw new AppValidationException(string.Join(" ", result.Errors.Select(e => e.Description)));
+
+        log.LogInformation("User {UserId} updated profile full name", userId);
         return new UserInfoDto(user.Id, user.FullName, user.Email!, await users.GetRolesAsync(user));
     }
 }
