@@ -1,0 +1,87 @@
+# ============================================================
+# .NET build output
+# ============================================================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+[Ll]og/
+[Ll]ogs/
+logs/
+artifacts/
+publish/
+*.nupkg
+*.snupkg
+
+# ============================================================
+# Secrets / local configuration
+# ============================================================
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json
+*.env
+.env
+.env.*
+!.env.example
+*.pfx
+*.pem
+*.key
+
+# ============================================================
+# IDEs / editors
+# ============================================================
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*~
+
+# ============================================================
+# Tests / coverage / quality
+# ============================================================
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+coverage/
+coverage*.xml
+coverage*.json
+*.coverage
+*.coveragexml
+coverage.opencover.xml
+.sonarqube/
+.sonar/
+
+# ============================================================
+# Databases (local)
+# ============================================================
+*.mdf
+*.ldf
+*.db
+*.db-shm
+*.db-wal
+
+# ============================================================
+# Node / frontend
+# ============================================================
+node_modules/
+dist/
+.vite/
+
+# ============================================================
+# OS files
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
