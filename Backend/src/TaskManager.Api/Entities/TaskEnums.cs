@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace TaskManager.Api.Entities;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TaskItemStatus
 {
     Pending = 0,
@@ -7,6 +10,7 @@ public enum TaskItemStatus
     Completed = 2
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum TaskPriority
 {
     Low = 0,
@@ -14,4 +18,5 @@ public enum TaskPriority
     High = 2,
     Critical = 3
 }
+
 

@@ -78,6 +78,7 @@ public static class AuthExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<ITaskService, TaskService>();
 
         services.AddRateLimiter(o =>
         {
