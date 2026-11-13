@@ -8,7 +8,16 @@ namespace TaskManager.Api.Services;
 
 public interface ITaskService
 {
-    Task<PagedResult<TaskDto>> GetAllAsync(Guid userId, bool isAdmin, int page = 1, int pageSize = 10);
+    Task<PagedResult<TaskDto>> GetAllAsync(
+        Guid userId,
+        bool isAdmin,
+        int page = 1,
+        int pageSize = 10,
+        TaskItemStatus? status = null,
+        TaskPriority? priority = null,
+        int? categoryId = null,
+        Guid? assignedToId = null,
+        string? search = null);
     Task<TaskDto> GetByIdAsync(int id, Guid userId, bool isAdmin);
     Task<TaskDto> CreateAsync(CreateTaskDto dto, Guid userId);
     Task<TaskDto> UpdateAsync(int id, UpdateTaskDto dto, Guid userId, bool isAdmin);
@@ -20,7 +29,16 @@ public class TaskService(
     AppDbContext db,
     ILogger<TaskService> log) : ITaskService
 {
-    public async Task<PagedResult<TaskDto>> GetAllAsync(Guid userId, bool isAdmin, int page = 1, int pageSize = 10)
+    public async Task<PagedResult<TaskDto>> GetAllAsync(
+        Guid userId,
+        bool isAdmin,
+        int page = 1,
+        int pageSize = 10,
+        TaskItemStatus? status = null,
+        TaskPriority? priority = null,
+        int? categoryId = null,
+        Guid? assignedToId = null,
+        string? search = null)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
@@ -29,6 +47,26 @@ public class TaskService(
 
         if (!isAdmin)
             query = query.Where(t => t.CreatedById == userId || t.AssignedToId == userId);
+
+        if (status.HasValue)
+            query = query.Where(t => t.Status == status.Value);
+
+        if (priority.HasValue)
+            query = query.Where(t => t.Priority == priority.Value);
+
+        if (categoryId.HasValue)
+            query = query.Where(t => t.CategoryId == categoryId.Value);
+
+        if (assignedToId.HasValue)
+            query = query.Where(t => t.AssignedToId == assignedToId.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(t =>
+                t.Title.ToLower().Contains(term) ||
+                (t.Description != null && t.Description.ToLower().Contains(term)));
+        }
 
         var totalCount = await query.CountAsync();
 

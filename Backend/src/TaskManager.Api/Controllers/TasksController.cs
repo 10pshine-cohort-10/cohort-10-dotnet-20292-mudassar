@@ -17,8 +17,22 @@ public class TasksController(ITaskService tasks) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<PagedResult<TaskDto>>> GetAll(
         [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 10)
-        => Ok(await tasks.GetAllAsync(User.GetUserId(), User.IsAdmin(), page, pageSize));
+        [FromQuery] int pageSize = 10,
+        [FromQuery] Entities.TaskItemStatus? status = null,
+        [FromQuery] Entities.TaskPriority? priority = null,
+        [FromQuery] int? categoryId = null,
+        [FromQuery] Guid? assignedToId = null,
+        [FromQuery] string? search = null)
+        => Ok(await tasks.GetAllAsync(
+            User.GetUserId(),
+            User.IsAdmin(),
+            page,
+            pageSize,
+            status,
+            priority,
+            categoryId,
+            assignedToId,
+            search));
 
     [HttpGet("{id:int}")]
     [ProducesResponseType<TaskDto>(StatusCodes.Status200OK)]

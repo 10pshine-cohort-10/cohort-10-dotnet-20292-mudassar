@@ -5,6 +5,9 @@ import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
+import TaskList from "./pages/TaskList";
+import TaskForm from "./pages/TaskForm";
+import TaskDetail from "./pages/TaskDetail";
 
 function PublicOnly() {
   const { user, loading } = useAuth();
@@ -26,10 +29,10 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/tasks" element={<Placeholder name="Task list" />} />
-          <Route path="/tasks/new" element={<Placeholder name="New task" />} />
-          <Route path="/tasks/:id" element={<Placeholder name="Task detail" />} />
-          <Route path="/tasks/:id/edit" element={<Placeholder name="Edit task" />} />
+          <Route path="/tasks" element={<TaskList />} />
+          <Route path="/tasks/new" element={<TaskForm />} />
+          <Route path="/tasks/:id" element={<TaskDetail />} />
+          <Route path="/tasks/:id/edit" element={<TaskForm />} />
           <Route path="/profile" element={<Placeholder name="Profile" />} />
         </Route>
       </Route>

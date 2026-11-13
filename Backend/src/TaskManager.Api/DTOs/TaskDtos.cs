@@ -23,6 +23,15 @@ public record UpdateTaskDto(
 
 public record UpdateTaskStatusDto([Required] TaskItemStatus Status);
 
+public record TaskFilterParams(
+    int Page = 1,
+    int PageSize = 10,
+    TaskItemStatus? Status = null,
+    TaskPriority? Priority = null,
+    int? CategoryId = null,
+    Guid? AssignedToId = null,
+    string? Search = null);
+
 public record TaskDto(
     int Id,
     string Title,
