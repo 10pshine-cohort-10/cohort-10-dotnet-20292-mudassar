@@ -36,8 +36,8 @@ public class GlobalExceptionMiddleware(
             log.LogError(ex, "Unhandled exception on {Method} {Path} (TraceId {TraceId})",
                 ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier);
         else
-            log.LogWarning("Handled {Type} on {Path}: {Message}",
-                ex.GetType().Name, ctx.Request.Path, ex.Message);
+            log.LogWarning("Handled {ExceptionType} ({StatusCode}) on {Method} {Path}: {Message}",
+                ex.GetType().Name, status, ctx.Request.Method, ctx.Request.Path, ex.Message);
 
         if (ctx.Response.HasStarted)
             return;

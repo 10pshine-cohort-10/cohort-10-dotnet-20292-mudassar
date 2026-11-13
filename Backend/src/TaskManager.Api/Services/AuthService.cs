@@ -24,7 +24,10 @@ public class AuthService(
         var email = dto.Email.Trim();
 
         if (await users.FindByEmailAsync(email) is not null)
+        {
+            log.LogWarning("Registration rejected: email is already registered");
             throw new ConflictException("This email is already registered.");
+        }
 
         var user = new ApplicationUser
         {
@@ -35,10 +38,13 @@ public class AuthService(
 
         var result = await users.CreateAsync(user, dto.Password);
         if (!result.Succeeded)
+        {
+            log.LogWarning("Registration failed validation with {ErrorCount} error(s)", result.Errors.Count());
             throw new AppValidationException(string.Join(" ", result.Errors.Select(e => e.Description)));
+        }
 
         await users.AddToRoleAsync(user, Roles.User);   // public sign-up is ALWAYS "User"
-        log.LogInformation("User {UserId} registered", user.Id);
+        log.LogInformation("User {UserId} registered with role {Role}", user.Id, Roles.User);
 
         return new UserInfoDto(user.Id, user.FullName, user.Email!, [Roles.User]);
     }
@@ -69,15 +75,20 @@ public class AuthService(
         var roles = await users.GetRolesAsync(user);
         var (token, expires) = jwt.Create(user, roles);
 
-        log.LogInformation("User {UserId} logged in", user.Id);
+        log.LogInformation("User {UserId} logged in with roles {Roles}", user.Id, roles);
         return new AuthResponse(token, expires, new UserInfoDto(user.Id, user.FullName, user.Email!, roles));
     }
 
     public async Task<UserInfoDto> GetCurrentAsync(Guid userId)
     {
-        var user = await users.FindByIdAsync(userId.ToString())
-                   ?? throw new NotFoundException("User was not found.");
+        var user = await users.FindByIdAsync(userId.ToString());
+        if (user is null)
+        {
+            log.LogWarning("Profile lookup failed: user {UserId} was not found", userId);
+            throw new NotFoundException("User was not found.");
+        }
 
+        log.LogDebug("Fetched current profile for user {UserId}", userId);
         return new UserInfoDto(user.Id, user.FullName, user.Email!, await users.GetRolesAsync(user));
     }
 }
