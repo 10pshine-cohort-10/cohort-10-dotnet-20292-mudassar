@@ -142,5 +142,31 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var page = await listRes.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
         Assert.DoesNotContain(page!.Items, t => t.Id == created.Id);
     }
+
+    [Fact]
+    public async Task GetTasks_SupportsQueryFilters()
+    {
+        var owner = await RegisterAndLoginUserAsync("FilterOwner");
+        var uniqueTitle = $"FilterTarget-{Guid.NewGuid():N}"[..20];
+
+        using var createReq = Authorized(
+            HttpMethod.Post,
+            "/api/tasks",
+            owner.Token,
+            new CreateTaskDto(uniqueTitle, Priority: TaskPriority.Critical));
+        var createRes = await _client.SendAsync(createReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+
+        using var filterReq = Authorized(
+            HttpMethod.Get,
+            $"/api/tasks?priority=Critical&search={uniqueTitle}",
+            owner.Token);
+        var filterRes = await _client.SendAsync(filterReq);
+        Assert.Equal(HttpStatusCode.OK, filterRes.StatusCode);
+
+        var page = await filterRes.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
+        Assert.Single(page!.Items);
+        Assert.Equal(uniqueTitle, page.Items[0].Title);
+    }
 }
 

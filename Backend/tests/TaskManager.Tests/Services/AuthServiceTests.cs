@@ -145,5 +145,19 @@ public class AuthServiceTests
 
         await Assert.ThrowsAsync<NotFoundException>(() => CreateSut().GetCurrentAsync(Guid.NewGuid()));
     }
+
+    [Fact]
+    public async Task UpdateProfile_ValidFullName_TrimsAndUpdatesUser()
+    {
+        var user = NewUser();
+        _users.Setup(u => u.FindByIdAsync(user.Id.ToString())).ReturnsAsync(user);
+        _users.Setup(u => u.UpdateAsync(user)).ReturnsAsync(IdentityResult.Success);
+        _users.Setup(u => u.GetRolesAsync(user)).ReturnsAsync([Roles.User]);
+
+        var updated = await CreateSut().UpdateProfileAsync(user.Id, new UpdateProfileDto("  Updated Name  "));
+
+        Assert.Equal("Updated Name", updated.FullName);
+        _users.Verify(u => u.UpdateAsync(user), Times.Once);
+    }
 }
 

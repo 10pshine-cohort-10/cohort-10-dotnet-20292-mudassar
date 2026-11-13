@@ -125,5 +125,15 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         var getAfterDeleteRes = await _client.SendAsync(getAfterDeleteReq);
         Assert.Equal(HttpStatusCode.NotFound, getAfterDeleteRes.StatusCode);
     }
+
+    [Fact]
+    public async Task DeleteCategory_AsRegularUser_Returns403Forbidden()
+    {
+        var userAuth = await RegisterAndLoginUserAsync();
+        using var req = Authorized(HttpMethod.Delete, "/api/categories/1", userAuth.Token);
+
+        var res = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
 }
 

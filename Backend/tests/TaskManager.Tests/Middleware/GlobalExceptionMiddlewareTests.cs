@@ -84,5 +84,25 @@ public class GlobalExceptionMiddlewareTests
         Assert.Equal(409, problem!.Status);
         Assert.Equal("The record was modified by another user.", problem.Title);
     }
+
+    [Fact]
+    public async Task InvokeAsync_UnhandledExceptionInDevelopment_IncludesStackTraceInDetail()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.Body = new MemoryStream();
+        ctx.Request.Path = "/api/dev-boom";
+
+        var sut = CreateSut(_ => throw new InvalidOperationException("dev stack check"), isDevelopment: true);
+        await sut.InvokeAsync(ctx);
+
+        Assert.Equal(StatusCodes.Status500InternalServerError, ctx.Response.StatusCode);
+
+        ctx.Response.Body.Position = 0;
+        var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
+            ctx.Response.Body,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.Contains("dev stack check", problem!.Detail);
+    }
 }
 

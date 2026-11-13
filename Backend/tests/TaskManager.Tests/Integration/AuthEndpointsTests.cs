@@ -126,4 +126,11 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
         var problem = await res.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.Contains("locked", problem!.Title);
     }
+
+    [Fact]
+    public async Task Logout_WithoutToken_Returns401()
+    {
+        var res = await _client.PostAsync("/api/auth/logout", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
 }

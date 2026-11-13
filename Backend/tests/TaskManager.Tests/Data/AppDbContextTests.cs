@@ -120,5 +120,31 @@ public class AppDbContextTests : IAsyncLifetime
         Assert.Null(reloaded.CategoryId);
         Assert.False(reloaded.IsDeleted);
     }
+
+    [Fact]
+    public async Task TaskHistory_CascadeDeletesWithTaskItem_AndHidesWhenTaskIsSoftDeleted()
+    {
+        var user = await SeedUserAsync();
+        var task = new TaskItem { Title = "Audited task", CreatedById = user.Id };
+        _db.Tasks.Add(task);
+        await _db.SaveChangesAsync();
+
+        _db.TaskHistories.Add(new TaskHistory
+        {
+            TaskItemId = task.Id,
+            UserId = user.Id,
+            Action = "Created",
+            NewValue = "Pending"
+        });
+        await _db.SaveChangesAsync();
+
+        Assert.Single(await _db.TaskHistories.ToListAsync());
+
+        task.IsDeleted = true;
+        await _db.SaveChangesAsync();
+
+        Assert.Empty(await _db.TaskHistories.ToListAsync());
+        Assert.Single(await _db.TaskHistories.IgnoreQueryFilters().ToListAsync());
+    }
 }
 

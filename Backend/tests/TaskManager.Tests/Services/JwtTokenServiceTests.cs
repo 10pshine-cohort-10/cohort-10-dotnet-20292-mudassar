@@ -59,4 +59,17 @@ public class JwtTokenServiceTests
         Assert.Contains(Roles.User, roles);
         Assert.Single(jwt.Claims, c => c.Type == JwtRegisteredClaimNames.Jti);
     }
+
+    [Fact]
+    public void Create_GeneratesDistinctJtiForEachToken()
+    {
+        var sut = new JwtTokenService(Microsoft.Extensions.Options.Options.Create(Options));
+
+        var (firstToken, _) = sut.Create(User, [Roles.User]);
+        var (secondToken, _) = sut.Create(User, [Roles.User]);
+
+        var jti1 = Read(firstToken).Claims.Single(c => c.Type == JwtRegisteredClaimNames.Jti).Value;
+        var jti2 = Read(secondToken).Claims.Single(c => c.Type == JwtRegisteredClaimNames.Jti).Value;
+        Assert.NotEqual(jti1, jti2);
+    }
 }

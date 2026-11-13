@@ -64,5 +64,31 @@ public class UserLogContextMiddlewareTests
         var evt = Assert.Single(sink.Events);
         Assert.Equal("\"Anonymous\"", evt.Properties["UserId"].ToString());
     }
+
+    [Fact]
+    public async Task InvokeAsync_AuthenticatedWithoutNameIdentifier_PushesUnknownUserId()
+    {
+        var sink = new InMemorySink();
+        using var logger = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.Sink(sink)
+            .CreateLogger();
+
+        var ctx = new DefaultHttpContext { TraceIdentifier = "trace-no-id" };
+        ctx.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.Email, "noid@example.com")],
+            authenticationType: "TestAuth"));
+
+        var middleware = new UserLogContextMiddleware(_ =>
+        {
+            logger.Information("Authenticated without NameIdentifier");
+            return Task.CompletedTask;
+        });
+
+        await middleware.InvokeAsync(ctx);
+
+        var evt = Assert.Single(sink.Events);
+        Assert.Equal("\"Unknown\"", evt.Properties["UserId"].ToString());
+    }
 }
 

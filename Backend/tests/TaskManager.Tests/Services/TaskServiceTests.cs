@@ -227,5 +227,29 @@ public class TaskServiceTests : IAsyncLifetime
         var deleteAction = await controller.Delete(42);
         Assert.IsType<NoContentResult>(deleteAction);
     }
+
+    [Fact]
+    public async Task GetAll_FiltersByStatusPriorityCategoryAndSearch()
+    {
+        var sut = CreateSut();
+        await sut.CreateAsync(new CreateTaskDto(
+            Title: "Critical Release Task",
+            Description: "Deploy production build",
+            Priority: TaskPriority.Critical,
+            CategoryId: _category.Id), _owner.Id);
+        await sut.CreateAsync(new CreateTaskDto(
+            Title: "Low Priority Chore",
+            Priority: TaskPriority.Low), _owner.Id);
+
+        var filtered = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            priority: TaskPriority.Critical,
+            categoryId: _category.Id,
+            search: "production");
+
+        var item = Assert.Single(filtered.Items);
+        Assert.Equal("Critical Release Task", item.Title);
+    }
 }
 

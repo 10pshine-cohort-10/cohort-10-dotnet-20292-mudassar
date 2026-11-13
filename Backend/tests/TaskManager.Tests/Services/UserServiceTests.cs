@@ -213,5 +213,21 @@ public class UserServiceTests
         _users.Verify(u => u.UpdateAsync(user), Times.Once);
         _users.Verify(u => u.UpdateSecurityStampAsync(user), Times.Once);
     }
+
+    [Fact]
+    public async Task SetActive_ReactivateUser_UpdatesFlagWithoutRotatingSecurityStamp()
+    {
+        var user = NewUser(active: false);
+        var adminId = Guid.NewGuid();
+
+        _users.Setup(u => u.FindByIdAsync(user.Id.ToString())).ReturnsAsync(user);
+        _users.Setup(u => u.UpdateAsync(user)).ReturnsAsync(IdentityResult.Success);
+
+        await CreateSut().SetActiveAsync(user.Id, isActive: true, adminId);
+
+        Assert.True(user.IsActive);
+        _users.Verify(u => u.UpdateAsync(user), Times.Once);
+        _users.Verify(u => u.UpdateSecurityStampAsync(user), Times.Never);
+    }
 }
 

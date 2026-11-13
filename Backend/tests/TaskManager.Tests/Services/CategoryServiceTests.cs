@@ -139,5 +139,11 @@ public class CategoryServiceTests : IAsyncLifetime
         Assert.Equal("Zeta", all[1].Name);
         Assert.Equal(0, all[1].TaskCount);
     }
+
+    [Fact]
+    public async Task GetById_MissingCategory_ThrowsNotFoundException()
+    {
+        await Assert.ThrowsAsync<NotFoundException>(() => CreateSut().GetByIdAsync(4040));
+    }
 }
 

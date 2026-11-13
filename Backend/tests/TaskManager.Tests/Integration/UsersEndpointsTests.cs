@@ -184,5 +184,19 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var updated = await res.Content.ReadFromJsonAsync<UserInfoDto>();
         Assert.Equal("After Name", updated!.FullName);
     }
+
+    [Fact]
+    public async Task ChangeRole_ForNonExistentUser_Returns404()
+    {
+        var adminAuth = await LoginAdminAsync();
+        using var req = Authorized(
+            HttpMethod.Put,
+            $"/api/users/{Guid.NewGuid()}/role",
+            adminAuth.Token,
+            new ChangeRoleDto(Roles.Admin));
+
+        var res = await _client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
 }
 
