@@ -4,6 +4,7 @@ namespace TaskManager.Api.Exceptions;
 public abstract class AppException(string message, int statusCode) : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
+    public string ErrorCode => GetType().Name.Replace("Exception", string.Empty);
 }
 
 public class NotFoundException(string m) : AppException(m, StatusCodes.Status404NotFound);

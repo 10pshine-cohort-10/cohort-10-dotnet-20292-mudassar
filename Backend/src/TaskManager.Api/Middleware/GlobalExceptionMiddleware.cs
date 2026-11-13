@@ -27,6 +27,7 @@ public class GlobalExceptionMiddleware(
         var (status, title) = ex switch
         {
             AppException app => (app.StatusCode, app.Message),
+            BadHttpRequestException badReq => (StatusCodes.Status400BadRequest, badReq.Message),
             DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "The record was modified by another user."),
             UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Unauthorized."),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
@@ -36,8 +37,8 @@ public class GlobalExceptionMiddleware(
             log.LogError(ex, "Unhandled exception on {Method} {Path} (TraceId {TraceId})",
                 ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier);
         else
-            log.LogWarning("Handled {ExceptionType} ({StatusCode}) on {Method} {Path}: {Message}",
-                ex.GetType().Name, status, ctx.Request.Method, ctx.Request.Path, ex.Message);
+            log.LogWarning(ex, "Handled {ExceptionType} ({StatusCode}) on {Method} {Path} (TraceId {TraceId}): {Message}",
+                ex.GetType().Name, status, ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier, ex.Message);
 
         if (ctx.Response.HasStarted)
             return;
@@ -50,6 +51,8 @@ public class GlobalExceptionMiddleware(
             Detail = env.IsDevelopment() && status >= 500 ? ex.ToString() : null
         };
         problem.Extensions["traceId"] = ctx.TraceIdentifier;
+        if (ex is AppException appEx)
+            problem.Extensions["errorCode"] = appEx.ErrorCode;
 
         ctx.Response.Clear();
         ctx.Response.StatusCode = status;

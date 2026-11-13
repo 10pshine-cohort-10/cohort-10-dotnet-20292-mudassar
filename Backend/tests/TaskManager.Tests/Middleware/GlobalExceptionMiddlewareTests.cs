@@ -63,5 +63,26 @@ public class GlobalExceptionMiddlewareTests
         Assert.Equal("An unexpected error occurred.", problem!.Title);
         Assert.Null(problem.Detail);
     }
+
+    [Fact]
+    public async Task InvokeAsync_ConcurrencyException_Returns409ConflictProblemDetails()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.Body = new MemoryStream();
+        ctx.Request.Path = "/api/tasks/1";
+
+        var sut = CreateSut(_ => throw new Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException("concurrency"));
+        await sut.InvokeAsync(ctx);
+
+        Assert.Equal(StatusCodes.Status409Conflict, ctx.Response.StatusCode);
+
+        ctx.Response.Body.Position = 0;
+        var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
+            ctx.Response.Body,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.Equal(409, problem!.Status);
+        Assert.Equal("The record was modified by another user.", problem.Title);
+    }
 }
 
