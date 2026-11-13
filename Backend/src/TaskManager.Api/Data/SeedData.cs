@@ -25,6 +25,16 @@ public static class SeedData
         var users = sp.GetRequiredService<UserManager<ApplicationUser>>();
         await SeedAccountAsync(users, config.GetSection("SeedAdmin"), Roles.Admin, "Admin", log);
         await SeedAccountAsync(users, config.GetSection("SeedUser"), Roles.User, "Test User", log);
+
+        if (!await db.Categories.AnyAsync())
+        {
+            db.Categories.AddRange(
+                new Category { Name = "Work", Description = "Work and project deliverables" },
+                new Category { Name = "Personal", Description = "Personal errands and goals" },
+                new Category { Name = "Urgent", Description = "Time-sensitive items requiring immediate attention" });
+            await db.SaveChangesAsync();
+            log.LogInformation("Seeded default categories (Work, Personal, Urgent)");
+        }
     }
 
     private static async Task SeedAccountAsync(

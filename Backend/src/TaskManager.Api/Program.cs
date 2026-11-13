@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using TaskManager.Api.Data;
@@ -25,7 +26,8 @@ try
         .Enrich.FromLogContext());
 
     // ---------- Services ----------
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddSwaggerWithJwt();
 
     builder.Services.AddDbContext<AppDbContext>(o =>
