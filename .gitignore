@@ -62,6 +62,7 @@ coverage*.json
 coverage.opencover.xml
 .sonarqube/
 .sonar/
+.scannerwork/
 
 # ============================================================
 # Databases (local)
