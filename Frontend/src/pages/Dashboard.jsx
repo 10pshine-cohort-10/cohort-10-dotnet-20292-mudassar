@@ -122,7 +122,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      <section className="cards" aria-label="Task summary">
+      <section className="cards" aria-label="Task status summary">
         <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary.completed} hint="Finished tasks" loading={false} />
         <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary.inProgress} hint="Being worked on" loading={false} />
         <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary.pending} hint="Not started yet" loading={false} />

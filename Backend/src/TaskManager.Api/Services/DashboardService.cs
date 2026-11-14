@@ -15,6 +15,7 @@ public class DashboardService(AppDbContext db, ILogger<DashboardService> log) : 
     public async Task<DashboardSummaryDto> GetSummaryAsync(Guid userId, bool isAdmin)
     {
         // Soft-deleted tasks are excluded by the global query filter.
+        // Standard users get counts for their created/assigned tasks; Admins get counts across all tasks.
         var query = db.Tasks.AsNoTracking();
         if (!isAdmin)
             query = query.Where(t => t.CreatedById == userId || t.AssignedToId == userId);

@@ -12,7 +12,10 @@ namespace TaskManager.Api.Controllers;
 [Authorize]
 public class DashboardController(IDashboardService dashboard) : ControllerBase
 {
-    /// <summary>Task counts by status: own/assigned tasks for users, all tasks for admins.</summary>
+    /// <summary>
+    /// Returns Completed, InProgress, Pending, and Total task counts:
+    /// user-specific counts for standard users, or all task counts for Admins.
+    /// </summary>
     [HttpGet("summary")]
     [ProducesResponseType<DashboardSummaryDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]

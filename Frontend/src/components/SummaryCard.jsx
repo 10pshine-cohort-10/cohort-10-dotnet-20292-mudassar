@@ -8,7 +8,7 @@ const ICONS = {
   total: <svg width="18" height="18" viewBox="0 0 24 24" {...P}><path d="M5 7h14M5 12h14M5 17h9" /></svg>,
 };
 
-export default function SummaryCard({ to, label, value, tone, hint, loading }) {
+export default function SummaryCard({ to, label, value = 0, tone, hint, loading }) {
   return (
     <Link to={to} className={`scard t-${tone}`} aria-label={loading ? label : `${label}: ${value} tasks`}>
       <div className="scard-top"><span className="ico" aria-hidden="true">{ICONS[tone]}</span>{label}</div>

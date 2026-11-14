@@ -54,6 +54,18 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
         var summary = await res.Content.ReadFromJsonAsync<DashboardSummaryDto>();
 
         Assert.Equal(new DashboardSummaryDto(Completed: 1, InProgress: 1, Pending: 0, Total: 2), summary);
+
+        // Admin sees all users' non-deleted tasks across statuses
+        var adminLogin = await _client.PostAsJsonAsync("/api/auth/login",
+            new LoginDto(factory.AdminEmail, factory.AdminPassword));
+        var adminToken = (await adminLogin.Content.ReadFromJsonAsync<AuthResponse>())!.Token;
+
+        using var adminReq = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard/summary");
+        adminReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var adminRes = await _client.SendAsync(adminReq);
+        Assert.Equal(HttpStatusCode.OK, adminRes.StatusCode);
+        var adminSummary = await adminRes.Content.ReadFromJsonAsync<DashboardSummaryDto>();
+        Assert.True(adminSummary!.Total >= 2);
     }
 }
 
