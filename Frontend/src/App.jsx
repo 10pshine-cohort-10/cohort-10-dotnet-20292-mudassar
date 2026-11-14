@@ -8,7 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import TaskList from "./pages/TaskList";
 import TaskForm from "./pages/TaskForm";
 import TaskDetail from "./pages/TaskDetail";
-import ComingSoon from "./pages/ComingSoon";
+import Profile from "./pages/Profile";
 
 function PublicOnly() {
   const { user, loading } = useAuth();
@@ -31,7 +31,7 @@ export default function App() {
           <Route path="/tasks/new" element={<TaskForm />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/tasks/:id/edit" element={<TaskForm />} />
-          <Route path="/profile" element={<ComingSoon title="Profile" subtitle="Manage your account details" />} />
+          <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>
 

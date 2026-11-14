@@ -122,6 +122,17 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
 .detail-meta dt{font-size:.78rem;font-weight:700;color:var(--soft);margin-bottom:4px}
 .detail-meta dd{margin:0;font-weight:600;font-size:.92rem}
 
+/* profile */
+.profile-top{display:flex;align-items:center;gap:18px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+.profile-avatar{width:64px;height:64px;border-radius:16px;background:var(--burgundy);color:#fff;display:grid;place-items:center;font-size:1.35rem;font-weight:800;letter-spacing:-.02em;flex:none}
+.profile-heading h2{margin:0 0 4px;font-size:1.25rem;font-weight:800}
+.profile-heading p{margin:0 0 8px;color:var(--soft);font-size:.9rem}
+.profile-roles{display:flex;gap:6px;flex-wrap:wrap}
+.profile-meta{padding-bottom:8px}
+.mono-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem!important;color:var(--soft);word-break:break-all}
+.profile-edit-form{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.profile-actions{justify-content:space-between}
+
 @media (max-width:760px){
   .nav-in .theme-btn{margin-left:auto}
   .burger{display:grid}
