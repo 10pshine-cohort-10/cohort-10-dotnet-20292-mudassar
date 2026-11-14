@@ -65,7 +65,7 @@ export default function TaskList() {
   }, [page, cacheKey]);
 
   useEffect(() => {
-    load();
+    void load();
     return () => controllerRef.current?.abort();
   }, [load]);
 
@@ -185,13 +185,15 @@ export default function TaskList() {
         </select>
       </div>
 
-      {hasLoaded && filteredItems.length === 0 ? (
+      {hasLoaded && filteredItems.length === 0 && (
         <div className="empty">
           <h2>No tasks found</h2>
           <p>Try clearing your filters or create a new task to get started.</p>
           <Link to="/tasks/new" className="btn-primary">+ Create Task</Link>
         </div>
-      ) : filteredItems.length > 0 ? (
+      )}
+
+      {filteredItems.length > 0 && (
         <div className="tbl-wrap">
           <table>
             <thead>
@@ -252,7 +254,7 @@ export default function TaskList() {
             </tbody>
           </table>
         </div>
-      ) : null}
+      )}
     </>
   );
 }

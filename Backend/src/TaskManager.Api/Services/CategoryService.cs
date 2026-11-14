@@ -20,12 +20,14 @@ public class CategoryService(
     AppDbContext db,
     ILogger<CategoryService> log) : ICategoryService
 {
+    private const string CategoryNotFoundMessage = "Category was not found.";
+
     public async Task<IReadOnlyList<CategoryDto>> GetAllAsync()
     {
         return await db.Categories
             .AsNoTracking()
             .OrderBy(c => c.Name)
-            .Select(c => new CategoryDto(c.Id, c.Name, c.Description, c.Tasks.Count()))
+            .Select(c => new CategoryDto(c.Id, c.Name, c.Description, c.Tasks.Count))
             .ToListAsync();
     }
 
@@ -34,10 +36,10 @@ public class CategoryService(
         var dto = await db.Categories
             .AsNoTracking()
             .Where(c => c.Id == id)
-            .Select(c => new CategoryDto(c.Id, c.Name, c.Description, c.Tasks.Count()))
+            .Select(c => new CategoryDto(c.Id, c.Name, c.Description, c.Tasks.Count))
             .FirstOrDefaultAsync();
 
-        return dto ?? throw new NotFoundException("Category was not found.");
+        return dto ?? throw new NotFoundException(CategoryNotFoundMessage);
     }
 
     [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
@@ -75,7 +77,7 @@ public class CategoryService(
     public async Task<CategoryDto> UpdateAsync(int id, SaveCategoryDto dto, Guid actingAdminId)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id)
-            ?? throw new NotFoundException("Category was not found.");
+            ?? throw new NotFoundException(CategoryNotFoundMessage);
 
         var name = dto.Name?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(name))
@@ -102,7 +104,7 @@ public class CategoryService(
     public async Task DeleteAsync(int id, Guid actingAdminId)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id)
-            ?? throw new NotFoundException("Category was not found.");
+            ?? throw new NotFoundException(CategoryNotFoundMessage);
 
         if (!db.Database.IsRelational())
         {

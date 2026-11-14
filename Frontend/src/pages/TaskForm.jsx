@@ -62,7 +62,7 @@ export default function TaskForm() {
         if (active) setLoading(false);
       }
     };
-    init();
+    void init();
     return () => {
       active = false;
     };
@@ -124,6 +124,8 @@ export default function TaskForm() {
       </div>
     );
   }
+
+  const submitLabel = isEdit ? "Save Changes" : "Create Task";
 
   return (
     <>
@@ -227,7 +229,7 @@ export default function TaskForm() {
               id="task-duedate"
               label="Due Date"
               type="date"
-              min={!isEdit ? todayStr() : undefined}
+              min={isEdit ? undefined : todayStr()}
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               error={fieldErrors.dueDate}
@@ -237,7 +239,7 @@ export default function TaskForm() {
           <div className="form-actions">
             <Link to={isEdit ? `/tasks/${id}` : "/tasks"} className="btn-ghost">Cancel</Link>
             <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? "Saving..." : isEdit ? "Save Changes" : "Create Task"}
+              {saving ? "Saving..." : submitLabel}
             </button>
           </div>
         </form>

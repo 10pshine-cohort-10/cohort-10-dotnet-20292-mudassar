@@ -21,7 +21,6 @@
 }
 :root[data-theme="dark"] .alert.error { background: #40181b; color: #ffb4b4; border-color: #6b2a2e; }
 :root[data-theme="dark"] .alert.success { background: #123a30; color: #7fe0b8; border-color: #1f5a48; }
-.panel { position: relative; }
 .theme-btn { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--ink); cursor: pointer; transition: background .15s; }
 .theme-btn:hover { background: var(--hint); }
 .theme-btn:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
@@ -55,7 +54,7 @@ body { font-family: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
 .brand small { color: #c98f9e; }
 
 /* form side */
-.panel { display: grid; place-items: center; padding: 32px 20px; }
+.panel { position: relative; display: grid; place-items: center; padding: 32px 20px; }
 .card { width: 100%; max-width: 400px; }
 .card h1 { font-size: 1.6rem; letter-spacing: -.02em; margin: 0 0 6px; font-weight: 800; }
 .card .sub { margin: 0 0 28px; color: var(--ink-soft); font-size: .95rem; }
@@ -98,4 +97,4 @@ body { font-family: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
   .brand { display: none; }
   .mobile-logo { display: flex; }
 }
-@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } *, *::before, *::after { transition: none; } }

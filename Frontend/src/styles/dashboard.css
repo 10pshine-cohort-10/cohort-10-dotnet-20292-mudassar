@@ -34,7 +34,7 @@ min-height:100vh;background:var(--mist);color:var(--ink);font-family:"Manrope",s
 .head{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:24px}
 .head h1{margin:0 0 4px;font-size:1.7rem;letter-spacing:-.02em;font-weight:800}
 .head p{margin:0;color:var(--soft)}
-.btn-primary{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:var(--radius);background:#c1213a;color:#fff!important;font-weight:700;font-size:.9rem;text-decoration:none;border:0;cursor:pointer;font-family:inherit}
+.btn-primary,.app a.btn-primary{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:var(--radius);background:#c1213a;color:#fff;font-weight:700;font-size:.9rem;text-decoration:none;border:0;cursor:pointer;font-family:inherit}
 .btn-primary:hover{background:#9c1a2f}
 .focus{display:flex;gap:10px;align-items:flex-start;background:var(--hint);color:var(--hint-t);border-radius:var(--radius);padding:12px 14px;font-size:.88rem;font-weight:500;margin-bottom:20px;line-height:1.45}
 .focus svg{flex:none;margin-top:3px}
@@ -88,7 +88,7 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
 .app .alert{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:var(--radius);font-size:.875rem;margin-bottom:20px}
 .app .alert.error{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
 .app .alert p{margin:0;flex:1}.app .alert button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:1.1rem}
-.retry{height:32px;padding:0 12px;border:1px solid currentColor!important;border-radius:8px;font:inherit;font-size:.82rem;font-weight:700}
+.app .alert button.retry,.retry{height:32px;padding:0 12px;border:1px solid currentColor;border-radius:8px;font:inherit;font-size:.82rem;font-weight:700}
 
 /* task management */
 .filters-bar{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
@@ -105,8 +105,8 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
 .status-quick-select{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;font:inherit;font-size:.78rem;padding:2px 6px;cursor:pointer}
 .row-actions{display:inline-flex;align-items:center;gap:8px}
 .btn-sm{height:30px;padding:0 10px;font-size:.8rem;display:inline-flex;align-items:center;text-decoration:none}
-.btn-danger{color:var(--red)!important;border-color:var(--red)!important}
-.btn-danger:hover{background:var(--red-bg)!important}
+.btn-danger,.btn-ghost.btn-danger{color:var(--red);border-color:var(--red)}
+.btn-danger:hover,.btn-ghost.btn-danger:hover{background:var(--red-bg)}
 .form-card,.detail-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:24px;max-width:760px}
 .form-grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:8px}
 .form-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}
@@ -129,7 +129,7 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
 .profile-heading p{margin:0 0 8px;color:var(--soft);font-size:.9rem}
 .profile-roles{display:flex;gap:6px;flex-wrap:wrap}
 .profile-meta{padding-bottom:8px}
-.mono-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem!important;color:var(--soft);word-break:break-all}
+.detail-meta dd.mono-id,.mono-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem;color:var(--soft);word-break:break-all}
 .profile-edit-form{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
 .profile-actions{justify-content:space-between}
 

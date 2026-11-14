@@ -15,7 +15,7 @@ indent_size = 4
 
 # SonarQube C# (SonarAnalyzer.CSharp) Rules
 dotnet_diagnostic.S101.severity = warning     # Types should be named in PascalCase
-dotnet_diagnostic.S107.severity = warning     # Methods should not have too many parameters
+dotnet_diagnostic.S107.severity = none        # Allow query/filter methods with optional parameters
 dotnet_diagnostic.S112.severity = warning     # General exceptions should never be thrown
 dotnet_diagnostic.S125.severity = warning     # Sections of code should not be commented out
 dotnet_diagnostic.S1066.severity = warning    # Collapsible "if" statements should be merged

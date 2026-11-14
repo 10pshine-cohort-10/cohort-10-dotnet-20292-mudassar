@@ -35,7 +35,7 @@ export default function TaskDetail() {
   }, [id]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const handleStatusChange = async (newStatus) => {

@@ -18,12 +18,32 @@ const fmt = (d) =>
 
 const ZERO_SUMMARY = { completed: 0, inProgress: 0, pending: 0, total: 0 };
 
-function computeSummaryFromTasks(items = [], totalCount) {
-  const completed = items.filter((t) => t.status === "Completed").length;
-  const inProgress = items.filter((t) => t.status === "InProgress").length;
-  const pending = items.filter((t) => t.status === "Pending").length;
-  const total = typeof totalCount === "number" ? totalCount : items.length;
+function computeSummaryFromTasks(items, totalCount) {
+  const list = items ?? [];
+  const completed = list.filter((t) => t.status === "Completed").length;
+  const inProgress = list.filter((t) => t.status === "InProgress").length;
+  const pending = list.filter((t) => t.status === "Pending").length;
+  const total = typeof totalCount === "number" ? totalCount : list.length;
   return { completed, inProgress, pending, total };
+}
+
+function isCanceledResult(res) {
+  return (
+    res.status === "rejected" &&
+    (res.reason?.code === "ERR_CANCELED" || res.reason?.name === "CanceledError")
+  );
+}
+
+function resolveSummary(summaryRes, tasksRes, fallbackSummary, nextRecent) {
+  if (summaryRes.status === "fulfilled") {
+    return summaryRes.value ?? ZERO_SUMMARY;
+  }
+  if (summaryRes.reason?.response?.status === 404) {
+    return tasksRes.status === "fulfilled"
+      ? computeSummaryFromTasks(nextRecent, tasksRes.value?.totalCount)
+      : ZERO_SUMMARY;
+  }
+  return fallbackSummary;
 }
 
 export default function Dashboard() {
@@ -52,32 +72,16 @@ export default function Dashboard() {
       getSummary({ signal }),
       getTasks({ pageSize: 5 }, { signal }),
     ]);
-    if (signal.aborted) return;
+    if (signal.aborted || isCanceledResult(tasksRes) || isCanceledResult(summaryRes)) return;
 
-    const tasksCanceled =
-      tasksRes.status === "rejected" &&
-      (tasksRes.reason?.code === "ERR_CANCELED" || tasksRes.reason?.name === "CanceledError");
-    const summaryCanceled =
-      summaryRes.status === "rejected" &&
-      (summaryRes.reason?.code === "ERR_CANCELED" || summaryRes.reason?.name === "CanceledError");
-    if (tasksCanceled || summaryCanceled) return;
-
-    let nextRecent = cached?.recent ?? [];
-    let nextSummary = cached?.summary ?? ZERO_SUMMARY;
-
-    if (tasksRes.status === "fulfilled") {
-      nextRecent = tasksRes.value?.items ?? [];
-    }
-
-    if (summaryRes.status === "fulfilled") {
-      nextSummary = summaryRes.value ?? ZERO_SUMMARY;
-    } else if (summaryRes.reason?.response?.status === 404) {
-      // Graceful fallback if the running backend process hasn't loaded DashboardController yet.
-      nextSummary =
-        tasksRes.status === "fulfilled"
-          ? computeSummaryFromTasks(nextRecent, tasksRes.value?.totalCount)
-          : ZERO_SUMMARY;
-    }
+    const nextRecent =
+      tasksRes.status === "fulfilled" ? tasksRes.value?.items ?? [] : cached?.recent ?? [];
+    const nextSummary = resolveSummary(
+      summaryRes,
+      tasksRes,
+      cached?.summary ?? ZERO_SUMMARY,
+      nextRecent
+    );
 
     setRecent(nextRecent);
     setSummary(nextSummary);
@@ -92,7 +96,7 @@ export default function Dashboard() {
   }, [cacheKey]);
 
   useEffect(() => {
-    load();
+    void load();
     return () => controllerRef.current?.abort();
   }, [load]);
 
@@ -129,13 +133,15 @@ export default function Dashboard() {
         <SummaryCard tone="total" label="Total" to="/tasks" value={summary.total} hint="All tasks" loading={false} />
       </section>
 
-      {hasLoaded && recent.length === 0 ? (
+      {hasLoaded && recent.length === 0 && (
         <div className="empty">
           <h2>No tasks yet</h2>
           <p>Create a task to start tracking your work.</p>
           <Link to="/tasks/new" className="btn-primary">Create your first task</Link>
         </div>
-      ) : recent.length > 0 ? (
+      )}
+
+      {recent.length > 0 && (
         <section aria-labelledby="recent-h">
           <div className="section-h">
             <h2 id="recent-h">Recent tasks</h2>
@@ -157,7 +163,7 @@ export default function Dashboard() {
             </table>
           </div>
         </section>
-      ) : null}
+      )}
     </>
   );
 }

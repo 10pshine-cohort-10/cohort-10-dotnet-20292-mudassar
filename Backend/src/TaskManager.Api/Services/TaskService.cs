@@ -9,6 +9,7 @@ namespace TaskManager.Api.Services;
 
 public interface ITaskService
 {
+    [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
     Task<PagedResult<TaskDto>> GetAllAsync(
         Guid userId,
         bool isAdmin,
@@ -30,6 +31,9 @@ public class TaskService(
     AppDbContext db,
     ILogger<TaskService> log) : ITaskService
 {
+    private const string TaskNotFoundMessage = "Task was not found.";
+
+    [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
     [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
     [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
     [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
@@ -96,7 +100,7 @@ public class TaskService(
             .Include(t => t.CreatedBy)
             .Include(t => t.AssignedTo)
             .FirstOrDefaultAsync(t => t.Id == id)
-            ?? throw new NotFoundException("Task was not found.");
+            ?? throw new NotFoundException(TaskNotFoundMessage);
 
         EnsureAccess(task, userId, isAdmin);
         return MapToDto(task);
@@ -143,7 +147,7 @@ public class TaskService(
     public async Task<TaskDto> UpdateAsync(int id, UpdateTaskDto dto, Guid userId, bool isAdmin)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id)
-            ?? throw new NotFoundException("Task was not found.");
+            ?? throw new NotFoundException(TaskNotFoundMessage);
 
         EnsureAccess(task, userId, isAdmin);
 
@@ -200,7 +204,7 @@ public class TaskService(
     public async Task<TaskDto> UpdateStatusAsync(int id, TaskItemStatus status, Guid userId, bool isAdmin)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id)
-            ?? throw new NotFoundException("Task was not found.");
+            ?? throw new NotFoundException(TaskNotFoundMessage);
 
         EnsureAccess(task, userId, isAdmin);
 
@@ -232,7 +236,7 @@ public class TaskService(
     public async Task DeleteAsync(int id, Guid userId, bool isAdmin)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id)
-            ?? throw new NotFoundException("Task was not found.");
+            ?? throw new NotFoundException(TaskNotFoundMessage);
 
         if (!isAdmin && task.CreatedById != userId)
             throw new ForbiddenException("Only the task creator or an admin can delete this task.");

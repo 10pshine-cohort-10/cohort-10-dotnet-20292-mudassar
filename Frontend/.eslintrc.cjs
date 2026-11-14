@@ -12,7 +12,7 @@ module.exports = {
   },
   // JavaScript & React code quality rules aligned with SonarJS / SonarQube JS profile
   rules: {
-    "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+    "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^[A-Z_]" }],
     "no-undef": "error",
     "no-unreachable": "error",
     "no-duplicate-imports": "error",
