@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using TaskManager.Api.Data;
 using TaskManager.Api.DTOs;
@@ -39,13 +40,16 @@ public class CategoryService(
         return dto ?? throw new NotFoundException("Category was not found.");
     }
 
+    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
+    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
+    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
     public async Task<CategoryDto> CreateAsync(SaveCategoryDto dto, Guid actingAdminId)
     {
         var name = dto.Name?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(name))
             throw new AppValidationException("Category name is required.");
 
-        var normalized = name.ToLower();
+        var normalized = name.ToLowerInvariant();
         if (await db.Categories.AnyAsync(c => c.Name.ToLower() == normalized))
             throw new ConflictException($"Category '{name}' already exists.");
 
@@ -65,6 +69,9 @@ public class CategoryService(
         return new CategoryDto(category.Id, category.Name, category.Description, 0);
     }
 
+    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
+    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
+    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
     public async Task<CategoryDto> UpdateAsync(int id, SaveCategoryDto dto, Guid actingAdminId)
     {
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id)
@@ -74,7 +81,7 @@ public class CategoryService(
         if (string.IsNullOrWhiteSpace(name))
             throw new AppValidationException("Category name is required.");
 
-        var normalized = name.ToLower();
+        var normalized = name.ToLowerInvariant();
         if (await db.Categories.AnyAsync(c => c.Id != id && c.Name.ToLower() == normalized))
             throw new ConflictException($"Category '{name}' already exists.");
 

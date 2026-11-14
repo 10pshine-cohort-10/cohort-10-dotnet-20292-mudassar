@@ -6,17 +6,17 @@ namespace TaskManager.Api.Data.Configurations;
 
 public class TaskCommentConfiguration : IEntityTypeConfiguration<TaskComment>
 {
-    public void Configure(EntityTypeBuilder<TaskComment> e)
+    public void Configure(EntityTypeBuilder<TaskComment> builder)
     {
-        e.Property(c => c.Text).IsRequired().HasMaxLength(1000);
-        e.HasQueryFilter(c => !c.TaskItem.IsDeleted);
+        builder.Property(c => c.Text).IsRequired().HasMaxLength(1000);
+        builder.HasQueryFilter(c => !c.TaskItem.IsDeleted);
 
-        e.HasOne(c => c.TaskItem)
+        builder.HasOne(c => c.TaskItem)
             .WithMany(t => t.Comments)
             .HasForeignKey(c => c.TaskItemId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        e.HasOne(c => c.User)
+        builder.HasOne(c => c.User)
             .WithMany(u => u.TaskComments)
             .HasForeignKey(c => c.UserId)
             .OnDelete(DeleteBehavior.Restrict);

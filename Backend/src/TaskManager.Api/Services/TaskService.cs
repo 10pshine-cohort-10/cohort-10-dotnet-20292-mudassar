@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.EntityFrameworkCore;
 using TaskManager.Api.Data;
 using TaskManager.Api.DTOs;
@@ -29,6 +30,9 @@ public class TaskService(
     AppDbContext db,
     ILogger<TaskService> log) : ITaskService
 {
+    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
+    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
+    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
     public async Task<PagedResult<TaskDto>> GetAllAsync(
         Guid userId,
         bool isAdmin,
@@ -62,7 +66,7 @@ public class TaskService(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
+            var term = search.Trim().ToLowerInvariant();
             query = query.Where(t =>
                 t.Title.ToLower().Contains(term) ||
                 (t.Description != null && t.Description.ToLower().Contains(term)));

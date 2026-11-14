@@ -11,6 +11,8 @@ namespace TaskManager.Tests.Middleware;
 
 public class GlobalExceptionMiddlewareTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
+
     private static GlobalExceptionMiddleware CreateSut(RequestDelegate next, bool isDevelopment = false)
     {
         var env = new Mock<IHostEnvironment>();
@@ -35,7 +37,7 @@ public class GlobalExceptionMiddlewareTests
         ctx.Response.Body.Position = 0;
         var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
             ctx.Response.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            JsonOptions);
 
         Assert.NotNull(problem);
         Assert.Equal(404, problem!.Status);
@@ -58,7 +60,7 @@ public class GlobalExceptionMiddlewareTests
         ctx.Response.Body.Position = 0;
         var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
             ctx.Response.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            JsonOptions);
 
         Assert.Equal("An unexpected error occurred.", problem!.Title);
         Assert.Null(problem.Detail);
@@ -79,7 +81,7 @@ public class GlobalExceptionMiddlewareTests
         ctx.Response.Body.Position = 0;
         var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
             ctx.Response.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            JsonOptions);
 
         Assert.Equal(409, problem!.Status);
         Assert.Equal("The record was modified by another user.", problem.Title);
@@ -100,7 +102,7 @@ public class GlobalExceptionMiddlewareTests
         ctx.Response.Body.Position = 0;
         var problem = await JsonSerializer.DeserializeAsync<ProblemDetails>(
             ctx.Response.Body,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            JsonOptions);
 
         Assert.Contains("dev stack check", problem!.Detail);
     }

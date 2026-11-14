@@ -5,7 +5,7 @@ using TaskManager.Api.Entities;
 
 namespace TaskManager.Tests.Data;
 
-public class AppDbContextTests : IAsyncLifetime
+public sealed class AppDbContextTests : IAsyncLifetime, IDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private AppDbContext _db = default!;
@@ -25,6 +25,12 @@ public class AppDbContextTests : IAsyncLifetime
     {
         await _db.DisposeAsync();
         await _connection.DisposeAsync();
+    }
+
+    public void Dispose()
+    {
+        _db?.Dispose();
+        _connection.Dispose();
     }
 
     private async Task<ApplicationUser> SeedUserAsync()

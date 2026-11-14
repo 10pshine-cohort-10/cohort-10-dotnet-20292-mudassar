@@ -9,7 +9,7 @@ using TaskManager.Api.Services;
 
 namespace TaskManager.Tests.Services;
 
-public class CategoryServiceTests : IAsyncLifetime
+public sealed class CategoryServiceTests : IAsyncLifetime, IDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private AppDbContext _db = default!;
@@ -29,6 +29,12 @@ public class CategoryServiceTests : IAsyncLifetime
     {
         await _db.DisposeAsync();
         await _connection.DisposeAsync();
+    }
+
+    public void Dispose()
+    {
+        _db?.Dispose();
+        _connection.Dispose();
     }
 
     private CategoryService CreateSut() => new(_db, NullLogger<CategoryService>.Instance);

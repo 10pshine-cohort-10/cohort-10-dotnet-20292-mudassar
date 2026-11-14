@@ -14,7 +14,7 @@ using TaskManager.Api.Services;
 
 namespace TaskManager.Tests.Services;
 
-public class TaskServiceTests : IAsyncLifetime
+public sealed class TaskServiceTests : IAsyncLifetime, IDisposable
 {
     private readonly SqliteConnection _connection = new("DataSource=:memory:");
     private AppDbContext _db = default!;
@@ -50,6 +50,12 @@ public class TaskServiceTests : IAsyncLifetime
     {
         await _db.DisposeAsync();
         await _connection.DisposeAsync();
+    }
+
+    public void Dispose()
+    {
+        _db?.Dispose();
+        _connection.Dispose();
     }
 
     private static ApplicationUser NewUser(string fullName, string email, bool active = true) => new()

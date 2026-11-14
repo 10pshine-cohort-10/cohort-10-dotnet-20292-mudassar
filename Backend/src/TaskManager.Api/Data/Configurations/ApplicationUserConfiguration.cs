@@ -6,9 +6,9 @@ namespace TaskManager.Api.Data.Configurations;
 
 public class ApplicationUserConfiguration : IEntityTypeConfiguration<ApplicationUser>
 {
-    public void Configure(EntityTypeBuilder<ApplicationUser> e)
+    public void Configure(EntityTypeBuilder<ApplicationUser> builder)
     {
-        e.Property(u => u.FullName).IsRequired().HasMaxLength(100);
+        builder.Property(u => u.FullName).IsRequired().HasMaxLength(100);
     }
 }
 
