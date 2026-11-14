@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 480" width="560" height="480" role="img" aria-label="Task dashboard illustration with a daily task list, weekly progress ring, team avatars and a smart suggestion" xmlns:c2pa="http://c2pa.org/manifest">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 480" width="560" height="480" role="img" aria-label="Task dashboard illustration with a daily task list, weekly progress ring, team avatars and a smart suggestion">
   <defs>
     <radialGradient id="glow" cx="50%" cy="48%" r="52%">
-      <stop offset="0" stop-color="#2f5bea" stop-opacity=".42"/>
-      <stop offset="1" stop-color="#2f5bea" stop-opacity="0"/>
+      <stop offset="0" stop-color="#e8758a" stop-opacity=".42"/>
+      <stop offset="1" stop-color="#c1213a" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="fade" cx="50%" cy="50%" r="50%">
       <stop offset="0" stop-color="#fff" stop-opacity="1"/>
@@ -14,10 +14,10 @@
       <circle cx="2" cy="2" r="1.2" fill="#fff" fill-opacity=".22"/>
     </pattern>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#030a16" flood-opacity=".45"/>
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#1a040c" flood-opacity=".45"/>
     </filter>
     <filter id="shadowSm" x="-20%" y="-20%" width="140%" height="160%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#030a16" flood-opacity=".35"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#1a040c" flood-opacity=".35"/>
     </filter>
   </defs>
 
@@ -31,69 +31,69 @@
     <g filter="url(#shadow)">
       <rect x="50" y="86" width="390" height="294" rx="20" fill="#ffffff"/>
     </g>
-    <text x="80" y="128" font-size="19" font-weight="800" fill="#10243e">Today</text>
-    <text x="80" y="148" font-size="12" font-weight="500" fill="#5b6b82">1 of 3 tasks done</text>
-    <rect x="80" y="162" width="330" height="6" rx="3" fill="#e7ecf4"/>
-    <rect x="80" y="162" width="110" height="6" rx="3" fill="#1f9d74"/>
+    <text x="80" y="128" font-size="19" font-weight="800" fill="#3b0f1e">Today</text>
+    <text x="80" y="148" font-size="12" font-weight="500" fill="#7a4c5b">1 of 3 tasks done</text>
+    <rect x="80" y="162" width="330" height="6" rx="3" fill="#fde9ed"/>
+    <rect x="80" y="162" width="110" height="6" rx="3" fill="#c1213a"/>
 
     <!-- row 1: done -->
     <circle cx="96" cy="212" r="12" fill="#1f9d74"/>
     <path d="M90.5 212.3l3.8 3.8 7-7.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="122" y="217" font-size="14.5" font-weight="600" fill="#7b8aa0" text-decoration="line-through">Draft Q4 report</text>
+    <text x="122" y="217" font-size="14.5" font-weight="600" fill="#9c7380" text-decoration="line-through">Draft Q4 report</text>
     <rect x="338" y="199" width="72" height="26" rx="13" fill="#e6f6ef"/>
     <text x="374" y="216.5" font-size="12" font-weight="700" fill="#157a5a" text-anchor="middle">Done</text>
-    <line x1="80" y1="242" x2="410" y2="242" stroke="#e7ecf4"/>
+    <line x1="80" y1="242" x2="410" y2="242" stroke="#ecd6da"/>
 
     <!-- row 2: in progress -->
-    <circle cx="96" cy="272" r="11" fill="none" stroke="#dbe4fb" stroke-width="3"/>
-    <path d="M96 261a11 11 0 0 1 11 11" fill="none" stroke="#2f5bea" stroke-width="3" stroke-linecap="round"/>
-    <text x="122" y="277" font-size="14.5" font-weight="700" fill="#10243e">Review design handoff</text>
-    <rect x="338" y="259" width="72" height="26" rx="13" fill="#fdf1db"/>
-    <text x="374" y="276.5" font-size="12" font-weight="700" fill="#9a5b00" text-anchor="middle">High</text>
-    <line x1="80" y1="302" x2="410" y2="302" stroke="#e7ecf4"/>
+    <circle cx="96" cy="272" r="11" fill="none" stroke="#fde9ed" stroke-width="3"/>
+    <path d="M96 261a11 11 0 0 1 11 11" fill="none" stroke="#d9486a" stroke-width="3" stroke-linecap="round"/>
+    <text x="122" y="277" font-size="14.5" font-weight="700" fill="#3b0f1e">Review design handoff</text>
+    <rect x="338" y="259" width="72" height="26" rx="13" fill="#fde9ed"/>
+    <text x="374" y="276.5" font-size="12" font-weight="700" fill="#d9486a" text-anchor="middle">Medium</text>
+    <line x1="80" y1="302" x2="410" y2="302" stroke="#ecd6da"/>
 
     <!-- row 3: pending -->
-    <circle cx="96" cy="332" r="11" fill="none" stroke="#c9d3e3" stroke-width="2.4"/>
-    <text x="122" y="337" font-size="14.5" font-weight="700" fill="#10243e">Send invoices</text>
-    <rect x="338" y="319" width="72" height="26" rx="13" fill="#eceff5"/>
-    <text x="374" y="336.5" font-size="12" font-weight="700" fill="#44546a" text-anchor="middle">Due Fri</text>
+    <circle cx="96" cy="332" r="11" fill="none" stroke="#ecd6da" stroke-width="2.4"/>
+    <text x="122" y="337" font-size="14.5" font-weight="700" fill="#3b0f1e">Send invoices</text>
+    <rect x="338" y="319" width="72" height="26" rx="13" fill="#5a0f26"/>
+    <text x="374" y="336.5" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">Critical</text>
 
     <!-- progress ring card -->
     <g filter="url(#shadowSm)">
       <rect x="352" y="36" width="168" height="146" rx="18" fill="#ffffff"/>
     </g>
-    <circle cx="436" cy="100" r="31" fill="none" stroke="#e7ecf4" stroke-width="9"/>
-    <circle cx="436" cy="100" r="31" fill="none" stroke="#2f5bea" stroke-width="9" stroke-linecap="round"
+    <circle cx="436" cy="100" r="31" fill="none" stroke="#fde9ed" stroke-width="9"/>
+    <circle cx="436" cy="100" r="31" fill="none" stroke="#c1213a" stroke-width="9" stroke-linecap="round"
             stroke-dasharray="140.2 194.8" transform="rotate(-90 436 100)"/>
-    <text x="436" y="106" font-size="17" font-weight="800" fill="#10243e" text-anchor="middle">72%</text>
-    <text x="436" y="156" font-size="12.5" font-weight="700" fill="#10243e" text-anchor="middle">Weekly progress</text>
-    <text x="436" y="172" font-size="11" font-weight="500" fill="#5b6b82" text-anchor="middle">18 of 25 tasks done</text>
+    <text x="436" y="106" font-size="17" font-weight="800" fill="#3b0f1e" text-anchor="middle">72%</text>
+    <text x="436" y="156" font-size="12.5" font-weight="700" fill="#3b0f1e" text-anchor="middle">Weekly progress</text>
+    <text x="436" y="172" font-size="11" font-weight="500" fill="#7a4c5b" text-anchor="middle">18 of 25 tasks done</text>
 
     <!-- team card -->
     <g filter="url(#shadowSm)">
       <rect x="22" y="352" width="208" height="76" rx="16" fill="#ffffff"/>
     </g>
     <g stroke="#fff" stroke-width="3">
-      <circle cx="56" cy="390" r="15" fill="#2f5bea"/>
-      <circle cx="78" cy="390" r="15" fill="#1f9d74"/>
-      <circle cx="100" cy="390" r="15" fill="#e5a13a"/>
-      <circle cx="122" cy="390" r="15" fill="#7c5cf0"/>
+      <circle cx="56" cy="390" r="15" fill="#5a0f26"/>
+      <circle cx="78" cy="390" r="15" fill="#c1213a"/>
+      <circle cx="100" cy="390" r="15" fill="#d9486a"/>
+      <circle cx="122" cy="390" r="15" fill="#e8758a"/>
     </g>
     <g font-size="11" font-weight="800" fill="#fff" text-anchor="middle">
       <text x="56" y="394">J</text><text x="78" y="394">A</text><text x="100" y="394">M</text><text x="122" y="394">S</text>
     </g>
-    <text x="150" y="388" font-size="13" font-weight="800" fill="#10243e">Design team</text>
-    <text x="150" y="405" font-size="11" font-weight="500" fill="#5b6b82">4 members</text>
+    <text x="150" y="388" font-size="13" font-weight="800" fill="#3b0f1e">Design team</text>
+    <text x="150" y="405" font-size="11" font-weight="500" fill="#7a4c5b">4 members</text>
     <circle cx="140" cy="372" r="0" fill="none"/>
 
     <!-- smart suggestion -->
     <g filter="url(#shadowSm)">
-      <rect x="270" y="396" width="268" height="62" rx="16" fill="#eef2ff"/>
+      <rect x="270" y="396" width="268" height="62" rx="16" fill="#fde9ed"/>
     </g>
-    <rect x="270" y="396" width="268" height="62" rx="16" fill="none" stroke="#c9d6ff"/>
-    <circle cx="298" cy="427" r="14" fill="#2f5bea"/>
+    <rect x="270" y="396" width="268" height="62" rx="16" fill="none" stroke="#ecd6da"/>
+    <circle cx="298" cy="427" r="14" fill="#c1213a"/>
     <path d="M298 419l1.9 5.3 5.3 1.9-5.3 1.9-1.9 5.3-1.9-5.3-5.3-1.9 5.3-1.9z" fill="#fff"/>
-    <text x="324" y="422" font-size="12.5" font-weight="700" fill="#2b44a8">Suggested next</text>
-    <text x="324" y="440" font-size="12" font-weight="500" fill="#2b44a8">Start “Send invoices” today.</text>
+    <text x="324" y="422" font-size="12.5" font-weight="700" fill="#5a0f26">Suggested next</text>
+    <text x="324" y="440" font-size="12" font-weight="500" fill="#5a0f26">Start “Send invoices” today.</text>
   </g>
-<metadata><c2pa:manifest>AAAWgmp1bWIAAAAeanVtZGMycGEAEQAQgAAAqgA4m3EDYzJwYQAAABZcanVtYgAAAEdqdW1kYzJtYQARABCAAACqADibcQN1cm46YzJwYTozY2Y0ZWU0Mi03ZTAyLTQ2ODQtODFlZS0zMjM0NmU0MTNiNTMAAAADl2p1bWIAAAApanVtZGMyYXMAEQAQgAAAqgA4m3EDYzJwYS5hc3NlcnRpb25zAAAAALxqdW1iAAAARGp1bWRjYm9yABEAEIAAAKoAOJtxE2MycGEuaW5ncmVkaWVudC52MwAAAAAYYzJzaBVdYaL6qZOXZcqLYPM9SIsAAABwY2JvcqNpZGM6Zm9ybWF0bWltYWdlL3N2Zyt4bWxqaW5zdGFuY2VJRHgseG1wOmlpZDpjMDU3YzJkNy05NGRlLTRmNjItOTM0Yi1kNTMyNDk5YzhmNzVscmVsYXRpb25zaGlwaHBhcmVudE9mAAAB4mp1bWIAAABBanVtZGNib3IAEQAQgAAAqgA4m3ETYzJwYS5hY3Rpb25zLnYyAAAAABhjMnNo781spsOkW9zwP00zKN73DAAAAZljYm9yomdhY3Rpb25zgqJmYWN0aW9ua2MycGEub3BlbmVkanBhcmFtZXRlcnOha2luZ3JlZGllbnRzgaJjdXJseC1zZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmluZ3JlZGllbnQudjNkaGFzaFgg7KaqGiQ8AsLa3SMySnizxSVEDQXketenfMw1Pk7rqaSkZmFjdGlvbngdY29tLmFudGhyb3BpYy5jbGF1ZGUucHJvdmlkZWRqcGFyYW1ldGVyc6F4H2NvbS5hbnRocm9waWMub3JpZ2luLWNvbmZpZGVuY2VndW5rbm93bmtkZXNjcmlwdGlvbnhmQ2xhdWRlIHByb3ZpZGVkIHRoaXMgZmlsZSBhdCB0aGUgcmVxdWVzdCBvZiBhIHVzZXIgYW5kIG1heSBoYXZlIGNyZWF0ZWQgb3IgbW9kaWZpZWQgdGhlIGZpbGUgY29udGVudHMubXNvZnR3YXJlQWdlbnShZG5hbWVmQ2xhdWRlcmFsbEFjdGlvbnNJbmNsdWRlZPUAAADIanVtYgAAAEBqdW1kY2JvcgARABCAAACqADibcRNjMnBhLmhhc2guZGF0YQAAAAAYYzJzaEvRJsiBn6HAYF5Iuw9hkM8AAACAY2JvcqVjYWxnZnNoYTI1NmNwYWRMAAAAAAAAAAAAAAAAZGhhc2hYILgNXa0K6wNQ2El51e9LHHze26FiHj7B2CTgBifYfF4kZG5hbWVuanVtYmYgbWFuaWZlc3RqZXhjbHVzaW9uc4GiZXN0YXJ0GRb8Zmxlbmd0aBkeBAAAAj5qdW1iAAAAJ2p1bWRjMmNsABEAEIAAAKoAOJtxA2MycGEuY2xhaW0udjIAAAACD2Nib3KlY2FsZ2ZzaGEyNTZpc2lnbmF0dXJleE1zZWxmI2p1bWJmPS9jMnBhL3VybjpjMnBhOjNjZjRlZTQyLTdlMDItNDY4NC04MWVlLTMyMzQ2ZTQxM2I1My9jMnBhLnNpZ25hdHVyZWppbnN0YW5jZUlEeCx4bXA6aWlkOmRmNDM4NWIwLWU2MWEtNGIyNS04NDdkLTU0ODIxN2VlMzU3M3JjcmVhdGVkX2Fzc2VydGlvbnODomN1cmx4LXNlbGYjanVtYmY9YzJwYS5hc3NlcnRpb25zL2MycGEuaW5ncmVkaWVudC52M2RoYXNoWCDspqoaJDwCwtrdIzJKeLPFJUQNBeR616d8zDU+TuuppKJjdXJseCpzZWxmI2p1bWJmPWMycGEuYXNzZXJ0aW9ucy9jMnBhLmFjdGlvbnMudjJkaGFzaFgg5LUq4yG+Vig88RB58CNuCrwlGdKRLGqK72TagnobqUyiY3VybHgpc2VsZiNqdW1iZj1jMnBhLmFzc2VydGlvbnMvYzJwYS5oYXNoLmRhdGFkaGFzaFgg2ZVxJL2S13oX1e5waqDsdlVZTOqBIaUldmMT3KVjNgN0Y2xhaW1fZ2VuZXJhdG9yX2luZm+jZG5hbWVvQW50aHJvcGljIEZpbGVzZ3ZlcnNpb25lMS4wLjBrc3BlY1ZlcnNpb25lMi40LjAAABA4anVtYgAAAChqdW1kYzJjcwARABCAAACqADibcQNjMnBhLnNpZ25hdHVyZQAAABAIY2JvctKEWQISogEmGCFZAgowggIGMIIBjaADAgECAhRA5aAK7sI50L64g/oGQgU9Z1UTADAKBggqhkjOPQQDAzBJMRcwFQYDVQQKEw5BbnRocm9waWMsIFBCQzEuMCwGA1UEAxMlQW50aHJvcGljIENvbnRlbnQgQ3JlZGVudGlhbHMgUm9vdCBDQTAeFw0yNjA4MDcxODQzNTZaFw0yODA4MDYxOTQzNTZaMEQxFzAVBgNVBAoTDkFudGhyb3BpYywgUEJDMSkwJwYDVQQDEyBBbnRocm9waWMgQ2xhdWRlIENvbnRlbnQgU2lnbmluZzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJh6CmvLUBgFFNU0vUKlOVtE6djd17L5SuwX0LemFisBM3dkd/3cyjxFA3Qo5S46fX0/ihY0VZ7mfb9KF703t5OjWDBWMA4GA1UdDwEB/wQEAwIHgDAVBgNVHSUEDjAMBgorBgEEAYPoXgIBMAwGA1UdEwEB/wQCMAAwHwYDVR0jBBgwFoAUzlHiBIFOZFsj+OPEz5o+nMHXXMIwCgYIKoZIzj0EAwMDZwAwZAIwMXMdFJ4BetLLVY7ORuE9noqbbAZOZn/aArXyTwFAZfKrPzxF2vPoJNf1+UCdg1XGAjBwX1zd9WGqYkqmL5SFqw1QySjr1zJfpJM9+1rdDwSPLMOPOjKuiXjoU/pUUeG9RwmhY3BhZFkNngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPZYQD9lDnKyhpYIzDZF3z4610DIWUxN4/MtOsFBjKj/YxOufdK8cYwKHwa/DCLNNsmma8fy9BlIj5n97u0brVm7gdw=</c2pa:manifest></metadata></svg>
+</svg>
