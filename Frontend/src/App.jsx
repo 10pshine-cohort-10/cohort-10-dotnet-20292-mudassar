@@ -8,15 +8,13 @@ import Dashboard from "./pages/Dashboard";
 import TaskList from "./pages/TaskList";
 import TaskForm from "./pages/TaskForm";
 import TaskDetail from "./pages/TaskDetail";
+import ComingSoon from "./pages/ComingSoon";
 
 function PublicOnly() {
   const { user, loading } = useAuth();
   if (loading) return null;
   return user ? <Navigate to="/dashboard" replace /> : <Outlet />;
 }
-
-// Placeholder until each screen is built.
-const Placeholder = ({ name }) => <h1>{name} (coming soon)</h1>;
 
 export default function App() {
   return (
@@ -33,7 +31,7 @@ export default function App() {
           <Route path="/tasks/new" element={<TaskForm />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
           <Route path="/tasks/:id/edit" element={<TaskForm />} />
-          <Route path="/profile" element={<Placeholder name="Profile" />} />
+          <Route path="/profile" element={<ComingSoon title="Profile" subtitle="Manage your account details" />} />
         </Route>
       </Route>
 

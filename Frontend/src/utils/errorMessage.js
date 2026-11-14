@@ -5,5 +5,9 @@ export function getErrorMessage(error) {
   if (data?.errors) return Object.values(data.errors).flat().join(" ");
   if (data?.title) return data.title;
   if (data?.detail) return data.detail;
-  return "Something went wrong.";
+  // Empty bodies (e.g. a 404 from an unknown route) used to collapse into a generic
+  // message that hid the real cause; keep the status so the failure is diagnosable.
+  const status = error.response.status;
+  if (status === 404) return "The requested resource was not found (404).";
+  return `Something went wrong (HTTP ${status}).`;
 }

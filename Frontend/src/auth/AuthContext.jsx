@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { getMe, loginRequest, logoutRequest } from "../api/authApi";
+import { clearPageCache } from "../utils/pageCache";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -20,19 +21,20 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
+    clearPageCache();
     const data = await loginRequest(email, password);
     localStorage.setItem("token", data.token);
     setUser(data.user);
   };
 
   const logout = async () => {
+    clearPageCache();
+    localStorage.removeItem("token");
+    setUser(null);
     try {
       await logoutRequest();
     } catch {
       /* the token is discarded either way */
-    } finally {
-      localStorage.removeItem("token");
-      setUser(null);
     }
   };
 

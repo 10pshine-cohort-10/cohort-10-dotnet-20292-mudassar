@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTasks, updateTaskStatus } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
 import { getErrorMessage } from "../utils/errorMessage";
+import { getPageCache, setPageCache } from "../utils/pageCache";
+import PageHeader from "../components/PageHeader";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -16,13 +18,18 @@ const fmtDate = (d) =>
 const isOverdue = (d, status) =>
   Boolean(d && status !== "Completed" && new Date(d) < new Date(new Date().toDateString()));
 
+const EMPTY_DATA = { items: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 0 };
+
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
+  const cacheKey = `tasks:${user?.id ?? "anon"}`;
+  const cached = getPageCache(cacheKey);
+
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [data, setData] = useState({ items: [], totalCount: 0, page: 1, pageSize: 10, totalPages: 0 });
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(() => cached?.data ?? EMPTY_DATA);
+  const [categories, setCategories] = useState(() => cached?.categories ?? []);
+  const [hasLoaded, setHasLoaded] = useState(() => Boolean(cached));
   const [error, setError] = useState("");
 
   const statusFilter = searchParams.get("status") || "";
@@ -31,25 +38,35 @@ export default function TaskList() {
   const searchQuery = searchParams.get("search") || "";
   const page = Number(searchParams.get("page") || 1);
 
+  const controllerRef = useRef(null);
+
   const load = useCallback(async () => {
-    setLoading(true);
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const { signal } = controller;
+
     setError("");
     try {
       const [tasksRes, catsRes] = await Promise.all([
-        getTasks({ page, pageSize: 50 }),
-        getCategories().catch(() => [])
+        getTasks({ page, pageSize: 50 }, { signal }),
+        getCategories().catch(() => []),
       ]);
+      if (signal.aborted) return;
       setData(tasksRes);
       setCategories(catsRes);
+      setHasLoaded(true);
+      setPageCache(cacheKey, { data: tasksRes, categories: catsRes });
     } catch (e) {
+      if (signal.aborted || e?.code === "ERR_CANCELED" || e?.name === "CanceledError") return;
       setError(getErrorMessage(e));
-    } finally {
-      setLoading(false);
+      setHasLoaded(true);
     }
-  }, [page]);
+  }, [page, cacheKey]);
 
   useEffect(() => {
     load();
+    return () => controllerRef.current?.abort();
   }, [load]);
 
   const filteredItems = useMemo(() => {
@@ -80,10 +97,14 @@ export default function TaskList() {
     setError("");
     try {
       const updated = await updateTaskStatus(task.id, newStatus);
-      setData((prev) => ({
-        ...prev,
-        items: prev.items.map((item) => (item.id === task.id ? updated : item))
-      }));
+      setData((prev) => {
+        const next = {
+          ...prev,
+          items: prev.items.map((item) => (item.id === task.id ? updated : item)),
+        };
+        setPageCache(cacheKey, { data: next, categories });
+        return next;
+      });
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -94,11 +115,15 @@ export default function TaskList() {
     setError("");
     try {
       await deleteTask(task.id);
-      setData((prev) => ({
-        ...prev,
-        items: prev.items.filter((item) => item.id !== task.id),
-        totalCount: Math.max(0, prev.totalCount - 1)
-      }));
+      setData((prev) => {
+        const next = {
+          ...prev,
+          items: prev.items.filter((item) => item.id !== task.id),
+          totalCount: Math.max(0, prev.totalCount - 1),
+        };
+        setPageCache(cacheKey, { data: next, categories });
+        return next;
+      });
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -108,13 +133,11 @@ export default function TaskList() {
 
   return (
     <>
-      <div className="head">
-        <div>
-          <h1>Tasks</h1>
-          <p>{isAdmin ? "Manage all tasks across the workspace" : "Create, track, and update your tasks"}</p>
-        </div>
-        <Link to="/tasks/new" className="btn-primary">+ New Task</Link>
-      </div>
+      <PageHeader
+        title="Tasks"
+        subtitle={isAdmin ? "Manage all tasks across the workspace" : "Create, track, and update your tasks"}
+        actions={<Link to="/tasks/new" className="btn-primary">+ New Task</Link>}
+      />
 
       <ErrorAlert message={error} onClose={() => setError("")} />
 
@@ -162,13 +185,13 @@ export default function TaskList() {
         </select>
       </div>
 
-      {!loading && filteredItems.length === 0 ? (
+      {hasLoaded && filteredItems.length === 0 ? (
         <div className="empty">
           <h2>No tasks found</h2>
           <p>Try clearing your filters or create a new task to get started.</p>
           <Link to="/tasks/new" className="btn-primary">+ Create Task</Link>
         </div>
-      ) : (
+      ) : filteredItems.length > 0 ? (
         <div className="tbl-wrap">
           <table>
             <thead>
@@ -183,60 +206,53 @@ export default function TaskList() {
               </tr>
             </thead>
             <tbody>
-              {loading
-                ? Array.from({ length: 5 }, (_, i) => (
-                    <tr key={i}>
-                      <td colSpan={7}><div className="skel" style={{ height: 18 }} /></td>
-                    </tr>
-                  ))
-                : filteredItems.map((t) => (
-                    <tr key={t.id}>
-                      <td>
-                        <Link className="task-title-link" to={`/tasks/${t.id}`}>{t.title}</Link>
-                      </td>
-                      <td>{t.categoryName || <span className="muted">Uncategorized</span>}</td>
-                      <td>{t.assignedToName || <span className="muted">Unassigned</span>}</td>
-                      <td><PriorityBadge priority={t.priority} /></td>
-                      <td>
-                        <div className="status-cell">
-                          <StatusBadge status={t.status} />
-                          <select
-                            className="status-quick-select"
-                            aria-label={`Change status for ${t.title}`}
-                            value={t.status}
-                            onChange={(e) => handleStatusChange(t, e.target.value)}
-                          >
-                            <option value="Pending">Pending</option>
-                            <option value="InProgress">In Progress</option>
-                            <option value="Completed">Completed</option>
-                          </select>
-                        </div>
-                      </td>
-                      <td className={isOverdue(t.dueDate, t.status) ? "due overdue" : "due"}>
-                        {fmtDate(t.dueDate)}
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <Link to={`/tasks/${t.id}`} className="btn-ghost btn-sm">View</Link>
-                          <Link to={`/tasks/${t.id}/edit`} className="btn-ghost btn-sm">Edit</Link>
-                          {canDelete(t) && (
-                            <button
-                              type="button"
-                              className="btn-ghost btn-sm btn-danger"
-                              onClick={() => handleDelete(t)}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+              {filteredItems.map((t) => (
+                <tr key={t.id}>
+                  <td>
+                    <Link className="task-title-link" to={`/tasks/${t.id}`}>{t.title}</Link>
+                  </td>
+                  <td>{t.categoryName || <span className="muted">Uncategorized</span>}</td>
+                  <td>{t.assignedToName || <span className="muted">Unassigned</span>}</td>
+                  <td><PriorityBadge priority={t.priority} /></td>
+                  <td>
+                    <div className="status-cell">
+                      <StatusBadge status={t.status} />
+                      <select
+                        className="status-quick-select"
+                        aria-label={`Change status for ${t.title}`}
+                        value={t.status}
+                        onChange={(e) => handleStatusChange(t, e.target.value)}
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="InProgress">In Progress</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                  </td>
+                  <td className={isOverdue(t.dueDate, t.status) ? "due overdue" : "due"}>
+                    {fmtDate(t.dueDate)}
+                  </td>
+                  <td>
+                    <div className="row-actions">
+                      <Link to={`/tasks/${t.id}`} className="btn-ghost btn-sm">View</Link>
+                      <Link to={`/tasks/${t.id}/edit`} className="btn-ghost btn-sm">Edit</Link>
+                      {canDelete(t) && (
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm btn-danger"
+                          onClick={() => handleDelete(t)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
     </>
   );
 }
-

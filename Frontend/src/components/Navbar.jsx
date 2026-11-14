@@ -3,6 +3,16 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import ThemeToggle from "./ThemeToggle";
 
+// Single source of truth for the nav. The active item is derived by NavLink from
+// the router location; there is no local "activeTab" state that could lag behind.
+// `end` = exact match. Tasks deliberately has no `end` so /tasks/new and
+// /tasks/:id keep the Tasks tab active.
+const NAV_ITEMS = [
+  { to: "/dashboard", label: "Dashboard", end: true },
+  { to: "/tasks", label: "Tasks", end: false },
+  { to: "/profile", label: "Profile", end: true },
+];
+
 export default function Navbar() {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
@@ -25,9 +35,11 @@ export default function Navbar() {
           TaskFlow
         </Link>
         <div id="menu" className={`menu${open ? " open" : ""}`}>
-          <NavLink to="/dashboard" className={link} onClick={close}>Dashboard</NavLink>
-          <NavLink to="/tasks" className={link} onClick={close}>Tasks</NavLink>
-          <NavLink to="/profile" className={link} onClick={close}>Profile</NavLink>
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={link} onClick={close}>
+              {item.label}
+            </NavLink>
+          ))}
           <div className="user">
             <span>{user?.fullName}</span>
             <span className="role">{isAdmin ? "Admin" : "User"}</span>

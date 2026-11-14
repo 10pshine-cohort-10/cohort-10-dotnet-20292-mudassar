@@ -29,6 +29,9 @@
 .hero { display: block; width: 100%; max-width: 520px; height: auto; margin-top: 32px; }
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
+/* Reserve scrollbar space so centered pages don't shift sideways when one route
+   is tall enough to scroll (Dashboard) and another is not (Profile). */
+html { scrollbar-gutter: stable; }
 body { font-family: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--mist); -webkit-font-smoothing: antialiased; }
 
 .auth { display: grid; grid-template-columns: minmax(320px, 5fr) 6fr; min-height: 100%; }

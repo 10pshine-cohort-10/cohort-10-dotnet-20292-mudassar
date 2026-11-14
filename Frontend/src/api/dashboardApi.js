@@ -1,3 +1,4 @@
 import client from "./axiosClient";
 
-export const getSummary = () => client.get("/dashboard/summary").then((r) => r.data);
+// `config` lets callers pass { signal } to cancel the request on unmount.
+export const getSummary = (config) => client.get("/dashboard/summary", config).then((r) => r.data);
