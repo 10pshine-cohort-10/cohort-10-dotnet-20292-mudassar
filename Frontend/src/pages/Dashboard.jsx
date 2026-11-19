@@ -18,15 +18,6 @@ const fmt = (d) =>
 
 const ZERO_SUMMARY = { completed: 0, inProgress: 0, pending: 0, total: 0 };
 
-function computeSummaryFromTasks(items, totalCount) {
-  const list = items ?? [];
-  const completed = list.filter((t) => t.status === "Completed").length;
-  const inProgress = list.filter((t) => t.status === "InProgress").length;
-  const pending = list.filter((t) => t.status === "Pending").length;
-  const total = typeof totalCount === "number" ? totalCount : list.length;
-  return { completed, inProgress, pending, total };
-}
-
 function isCanceledResult(res) {
   return (
     res.status === "rejected" &&
@@ -34,24 +25,12 @@ function isCanceledResult(res) {
   );
 }
 
-function resolveSummary(summaryRes, tasksRes, fallbackSummary, nextRecent) {
-  if (summaryRes.status === "fulfilled") {
-    return summaryRes.value ?? ZERO_SUMMARY;
-  }
-  if (summaryRes.reason?.response?.status === 404) {
-    return tasksRes.status === "fulfilled"
-      ? computeSummaryFromTasks(nextRecent, tasksRes.value?.totalCount)
-      : ZERO_SUMMARY;
-  }
-  return fallbackSummary;
-}
-
 export default function Dashboard() {
   const { user, isAdmin } = useAuth();
   const cacheKey = `dashboard:${user?.id ?? "anon"}`;
   const cached = getPageCache(cacheKey);
 
-  const [summary, setSummary] = useState(() => cached?.summary ?? ZERO_SUMMARY);
+  const [summary, setSummary] = useState(() => cached?.summary ?? null);
   const [recent, setRecent] = useState(() => cached?.recent ?? []);
   const [hasLoaded, setHasLoaded] = useState(() => Boolean(cached));
   const [loading, setLoading] = useState(false);
@@ -76,22 +55,18 @@ export default function Dashboard() {
 
     const nextRecent =
       tasksRes.status === "fulfilled" ? tasksRes.value?.items ?? [] : cached?.recent ?? [];
-    const nextSummary = resolveSummary(
-      summaryRes,
-      tasksRes,
-      cached?.summary ?? ZERO_SUMMARY,
-      nextRecent
-    );
+    const nextSummary =
+      summaryRes.status === "fulfilled" ? summaryRes.value ?? ZERO_SUMMARY : cached?.summary ?? null;
 
     setRecent(nextRecent);
     setSummary(nextSummary);
     setHasLoaded(true);
-    setPageCache(cacheKey, { summary: nextSummary, recent: nextRecent });
+    if (summaryRes.status === "fulfilled" && tasksRes.status === "fulfilled") {
+      setPageCache(cacheKey, { summary: nextSummary, recent: nextRecent });
+    }
 
-    const realFailure = [summaryRes, tasksRes].find(
-      (r) => r.status === "rejected" && r.reason?.response?.status !== 404
-    );
-    setError(realFailure ? getErrorMessage(realFailure.reason) : "");
+    const firstFailure = [summaryRes, tasksRes].find((r) => r.status === "rejected");
+    setError(firstFailure ? getErrorMessage(firstFailure.reason) : "");
     setLoading(false);
   }, [cacheKey]);
 
@@ -127,10 +102,10 @@ export default function Dashboard() {
       )}
 
       <section className="cards" aria-label="Task status summary">
-        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary.completed} hint="Finished tasks" loading={false} />
-        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary.inProgress} hint="Being worked on" loading={false} />
-        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary.pending} hint="Not started yet" loading={false} />
-        <SummaryCard tone="total" label="Total" to="/tasks" value={summary.total} hint="All tasks" loading={false} />
+        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary?.completed} hint="Finished tasks" loading={false} />
+        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary?.inProgress} hint="Being worked on" loading={false} />
+        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary?.pending} hint="Not started yet" loading={false} />
+        <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={false} />
       </section>
 
       {hasLoaded && recent.length === 0 && (

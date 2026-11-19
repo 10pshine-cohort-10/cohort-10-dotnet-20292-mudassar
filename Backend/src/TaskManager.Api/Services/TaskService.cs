@@ -77,13 +77,16 @@ public class TaskService(
         }
 
         var totalCount = await query.CountAsync();
+        var offset = (long)(page - 1) * pageSize;
+        if (offset > int.MaxValue || offset >= totalCount)
+            return new PagedResult<TaskDto>([], totalCount, page, pageSize);
 
         var entities = await query
             .Include(t => t.Category)
             .Include(t => t.CreatedBy)
             .Include(t => t.AssignedTo)
             .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
+            .Skip((int)offset)
             .Take(pageSize)
             .ToListAsync();
 
@@ -166,7 +169,7 @@ public class TaskService(
                 throw new AppValidationException("Invalid RowVersion format.");
             }
 
-            if (task.RowVersion.Length > 0 && !task.RowVersion.SequenceEqual(clientVersion))
+            if (task.RowVersion is { Length: > 0 } && !task.RowVersion.SequenceEqual(clientVersion))
                 throw new ConflictException("The task was modified by another user. Please reload and try again.");
 
             db.Entry(task).Property(t => t.RowVersion).OriginalValue = clientVersion;

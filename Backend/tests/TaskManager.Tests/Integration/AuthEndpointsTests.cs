@@ -124,7 +124,8 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
         var res = await _client.PostAsJsonAsync("/api/auth/login", new LoginDto(email, TestEnv.UserPassword));
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         var problem = await res.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.Contains("locked", problem!.Title);
+        Assert.NotNull(problem);
+        Assert.Equal("Invalid email or password.", problem.Title);
     }
 
     [Fact]

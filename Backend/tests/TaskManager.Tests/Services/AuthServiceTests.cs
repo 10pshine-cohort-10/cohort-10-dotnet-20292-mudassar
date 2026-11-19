@@ -68,6 +68,20 @@ public class AuthServiceTests
         Assert.Equal(TestEnv.UserName, result.FullName);
     }
 
+    [Fact]
+    public async Task Register_RoleAssignmentFails_DeletesCreatedUserAndThrows()
+    {
+        _users.Setup(u => u.FindByEmailAsync(It.IsAny<string>())).ReturnsAsync((ApplicationUser?)null);
+        _users.Setup(u => u.CreateAsync(It.IsAny<ApplicationUser>(), It.IsAny<string>())).ReturnsAsync(IdentityResult.Success);
+        _users.Setup(u => u.AddToRoleAsync(It.IsAny<ApplicationUser>(), Roles.User))
+              .ReturnsAsync(IdentityResult.Failed(new IdentityError { Description = "Role assignment failed." }));
+        _users.Setup(u => u.DeleteAsync(It.IsAny<ApplicationUser>())).ReturnsAsync(IdentityResult.Success);
+
+        var ex = await Assert.ThrowsAsync<AppValidationException>(() => CreateSut().RegisterAsync(ValidRegister));
+        Assert.Contains("Role assignment failed", ex.Message);
+        _users.Verify(u => u.DeleteAsync(It.IsAny<ApplicationUser>()), Times.Once);
+    }
+
     // ---------- Login ----------
 
     [Fact]
@@ -89,13 +103,13 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public async Task Login_LockedOut_ThrowsUnauthorizedWithLockedMessage()
+    public async Task Login_LockedOut_ThrowsGenericUnauthorized()
     {
         _users.Setup(u => u.FindByEmailAsync(It.IsAny<string>())).ReturnsAsync(NewUser());
         _users.Setup(u => u.IsLockedOutAsync(It.IsAny<ApplicationUser>())).ReturnsAsync(true);
 
         var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => CreateSut().LoginAsync(ValidLogin));
-        Assert.Contains("locked", ex.Message);
+        Assert.Equal("Invalid email or password.", ex.Message);
     }
 
     [Fact]

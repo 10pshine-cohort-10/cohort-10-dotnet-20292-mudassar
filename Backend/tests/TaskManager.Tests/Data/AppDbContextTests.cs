@@ -93,6 +93,31 @@ public sealed class AppDbContextTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
+    public async Task Remove_TaskItemWithLoadedCommentsAndHistory_PreservesDependents()
+    {
+        var user = await SeedUserAsync();
+        var task = new TaskItem { Title = "Task with children", CreatedById = user.Id };
+        _db.Tasks.Add(task);
+        await _db.SaveChangesAsync();
+
+        _db.TaskComments.Add(new TaskComment { TaskItemId = task.Id, UserId = user.Id, Text = "Keep me" });
+        _db.TaskHistories.Add(new TaskHistory { TaskItemId = task.Id, UserId = user.Id, Action = "Created" });
+        await _db.SaveChangesAsync();
+
+        // Load task WITH dependents tracked, then call Remove()
+        var loaded = await _db.Tasks
+            .Include(t => t.Comments)
+            .Include(t => t.History)
+            .SingleAsync(t => t.Id == task.Id);
+
+        _db.Tasks.Remove(loaded);
+        await _db.SaveChangesAsync();
+
+        Assert.Single(await _db.TaskComments.IgnoreQueryFilters().Where(c => c.TaskItemId == task.Id).ToListAsync());
+        Assert.Single(await _db.TaskHistories.IgnoreQueryFilters().Where(h => h.TaskItemId == task.Id).ToListAsync());
+    }
+
+    [Fact]
     public async Task Category_UniqueName_ThrowsDbUpdateExceptionOnDuplicate()
     {
         _db.Categories.Add(new Category { Name = "Work" });

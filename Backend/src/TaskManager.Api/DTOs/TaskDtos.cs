@@ -6,7 +6,7 @@ namespace TaskManager.Api.DTOs;
 public record CreateTaskDto(
     [Required, StringLength(200, MinimumLength = 2)] string Title,
     [StringLength(2000)] string? Description = null,
-    TaskPriority Priority = TaskPriority.Medium,
+    [EnumDataType(typeof(TaskPriority))] TaskPriority Priority = TaskPriority.Medium,
     DateTime? DueDate = null,
     int? CategoryId = null,
     Guid? AssignedToId = null);
@@ -14,14 +14,15 @@ public record CreateTaskDto(
 public record UpdateTaskDto(
     [Required, StringLength(200, MinimumLength = 2)] string Title,
     [StringLength(2000)] string? Description = null,
-    TaskItemStatus Status = TaskItemStatus.Pending,
-    TaskPriority Priority = TaskPriority.Medium,
+    [EnumDataType(typeof(TaskItemStatus))] TaskItemStatus Status = TaskItemStatus.Pending,
+    [EnumDataType(typeof(TaskPriority))] TaskPriority Priority = TaskPriority.Medium,
     DateTime? DueDate = null,
     int? CategoryId = null,
     Guid? AssignedToId = null,
     string? RowVersion = null);
 
-public record UpdateTaskStatusDto([Required] TaskItemStatus Status);
+public record UpdateTaskStatusDto(
+    [Required, EnumDataType(typeof(TaskItemStatus))] TaskItemStatus? Status);
 
 public record TaskFilterParams(
     int Page = 1,

@@ -62,7 +62,8 @@ public class GlobalExceptionMiddlewareTests
             ctx.Response.Body,
             JsonOptions);
 
-        Assert.Equal("An unexpected error occurred.", problem!.Title);
+        Assert.NotNull(problem);
+        Assert.Equal("An unexpected error occurred.", problem.Title);
         Assert.Null(problem.Detail);
     }
 
@@ -83,7 +84,8 @@ public class GlobalExceptionMiddlewareTests
             ctx.Response.Body,
             JsonOptions);
 
-        Assert.Equal(409, problem!.Status);
+        Assert.NotNull(problem);
+        Assert.Equal(409, problem.Status);
         Assert.Equal("The record was modified by another user.", problem.Title);
     }
 
@@ -104,7 +106,27 @@ public class GlobalExceptionMiddlewareTests
             ctx.Response.Body,
             JsonOptions);
 
-        Assert.Contains("dev stack check", problem!.Detail);
+        Assert.NotNull(problem);
+        Assert.Contains("dev stack check", problem.Detail);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_PreservesCorsHeaders_WhenRewritingErrorResponse()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.Body = new MemoryStream();
+        ctx.Request.Path = "/api/tasks/1";
+        ctx.Response.Headers["Access-Control-Allow-Origin"] = "http://localhost:5173";
+        ctx.Response.Headers["Vary"] = "Origin";
+        ctx.Response.Headers["X-Custom-Transient"] = "should-be-cleared";
+
+        var sut = CreateSut(_ => throw new ConflictException("Duplicate item."));
+        await sut.InvokeAsync(ctx);
+
+        Assert.Equal(StatusCodes.Status409Conflict, ctx.Response.StatusCode);
+        Assert.Equal("http://localhost:5173", ctx.Response.Headers["Access-Control-Allow-Origin"].ToString());
+        Assert.Equal("Origin", ctx.Response.Headers["Vary"].ToString());
+        Assert.False(ctx.Response.Headers.ContainsKey("X-Custom-Transient"));
     }
 }
 

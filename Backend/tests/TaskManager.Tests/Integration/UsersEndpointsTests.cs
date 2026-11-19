@@ -119,6 +119,11 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var updatedUser = await getRes.Content.ReadFromJsonAsync<UserDto>();
         Assert.Equal([Roles.Admin], updatedUser!.Roles);
 
+        // User's pre-promotion token is now revoked because security stamp changed -> 401
+        using var staleTokenReq = Authorized(HttpMethod.Get, "/api/auth/me", userAuth.Token);
+        var staleTokenRes = await _client.SendAsync(staleTokenReq);
+        Assert.Equal(HttpStatusCode.Unauthorized, staleTokenRes.StatusCode);
+
         // Invalid role -> 400
         using var badRoleReq = Authorized(
             HttpMethod.Put,
@@ -161,6 +166,11 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
             new SetActiveDto(false));
         var deactivateRes = await _client.SendAsync(deactivateReq);
         Assert.Equal(HttpStatusCode.NoContent, deactivateRes.StatusCode);
+
+        // Existing JWT token of deactivated user is immediately rejected -> 401
+        using var existingTokenReq = Authorized(HttpMethod.Get, "/api/auth/me", userAuth.Token);
+        var existingTokenRes = await _client.SendAsync(existingTokenReq);
+        Assert.Equal(HttpStatusCode.Unauthorized, existingTokenRes.StatusCode);
 
         // Deactivated user cannot log in -> 401
         var loginAttempt = await _client.PostAsJsonAsync("/api/auth/login",

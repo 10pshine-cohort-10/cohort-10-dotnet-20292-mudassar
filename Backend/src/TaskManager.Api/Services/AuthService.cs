@@ -44,7 +44,14 @@ public class AuthService(
             throw new AppValidationException(string.Join(" ", result.Errors.Select(e => e.Description)));
         }
 
-        await users.AddToRoleAsync(user, Roles.User);   // public sign-up is ALWAYS "User"
+        var roleResult = await users.AddToRoleAsync(user, Roles.User);   // public sign-up is ALWAYS "User"
+        if (!roleResult.Succeeded)
+        {
+            await users.DeleteAsync(user);
+            log.LogWarning("Registration failed assigning role {Role} to user {UserId}", Roles.User, user.Id);
+            throw new AppValidationException(string.Join(" ", roleResult.Errors.Select(e => e.Description)));
+        }
+
         log.LogInformation("User {UserId} registered with role {Role}", user.Id, Roles.User);
 
         return new UserInfoDto(user.Id, user.FullName, user.Email!, [Roles.User]);
@@ -62,7 +69,7 @@ public class AuthService(
         if (await users.IsLockedOutAsync(user))
         {
             log.LogWarning("Login attempt for locked-out user {UserId}", user.Id);
-            throw new UnauthorizedException("Account is temporarily locked. Try again later.");
+            throw new UnauthorizedException(InvalidCredentials);   // same message = no lockout enumeration
         }
 
         if (!await users.CheckPasswordAsync(user, dto.Password))

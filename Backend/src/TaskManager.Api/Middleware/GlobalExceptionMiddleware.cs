@@ -54,7 +54,17 @@ public class GlobalExceptionMiddleware(
         if (ex is AppException appEx)
             problem.Extensions["errorCode"] = appEx.ErrorCode;
 
+        // Preserve CORS headers set earlier in the pipeline before clearing the response.
+        var corsHeaders = ctx.Response.Headers
+            .Where(h => h.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(h.Key, "Vary", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
         ctx.Response.Clear();
+
+        foreach (var (key, value) in corsHeaders)
+            ctx.Response.Headers[key] = value;
+
         ctx.Response.StatusCode = status;
         await ctx.Response.WriteAsJsonAsync(problem, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json");
     }

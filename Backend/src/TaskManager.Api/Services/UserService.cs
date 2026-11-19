@@ -1,5 +1,7 @@
+using System.Data;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using TaskManager.Api.Data;
 using TaskManager.Api.DTOs;
 using TaskManager.Api.Entities;
 using TaskManager.Api.Exceptions;
@@ -17,8 +19,10 @@ public interface IUserService
 
 public class UserService(
     UserManager<ApplicationUser> users,
-    ILogger<UserService> log) : IUserService
+    ILogger<UserService> log,
+    AppDbContext? db = null) : IUserService
 {
+    private static readonly SemaphoreSlim AdminStateLock = new(1, 1);
     public async Task<IReadOnlyList<UserDto>> GetAllAsync(string? search = null, bool? activeOnly = null)
     {
         var query = users.Users.AsQueryable();
@@ -80,32 +84,58 @@ public class UserService(
         if (targetUserId == actingAdminId && normalizedRole != Roles.Admin)
             throw new AppValidationException("You cannot demote yourself.");
 
-        var user = await users.FindByIdAsync(targetUserId.ToString())
-            ?? throw new NotFoundException("User was not found.");
-
-        var currentRoles = await users.GetRolesAsync(user) ?? [];
-
-        if (currentRoles.Contains(Roles.Admin) && normalizedRole != Roles.Admin)
+        await AdminStateLock.WaitAsync();
+        try
         {
-            var admins = await users.GetUsersInRoleAsync(Roles.Admin);
-            if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
-                throw new AppValidationException("Cannot demote the last active admin.");
-        }
+            await using var tx = db is not null && db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+                : null;
 
-        if (currentRoles.Count > 0)
+            var user = await users.FindByIdAsync(targetUserId.ToString())
+                ?? throw new NotFoundException("User was not found.");
+
+            var currentRoles = await users.GetRolesAsync(user) ?? [];
+
+            // No-op if the user already holds solely the target role (avoids unnecessary remove/add window).
+            if (currentRoles.Count == 1 && string.Equals(currentRoles[0], normalizedRole, StringComparison.Ordinal))
+            {
+                if (tx is not null)
+                    await tx.CommitAsync();
+                return;
+            }
+
+            if (currentRoles.Contains(Roles.Admin) && normalizedRole != Roles.Admin)
+            {
+                var admins = await users.GetUsersInRoleAsync(Roles.Admin);
+                if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
+                    throw new AppValidationException("Cannot demote the last active admin.");
+            }
+
+            if (currentRoles.Count > 0)
+            {
+                var removeResult = await users.RemoveFromRolesAsync(user, currentRoles);
+                if (!removeResult.Succeeded)
+                    throw new AppValidationException(string.Join(" ", removeResult.Errors.Select(e => e.Description)));
+            }
+
+            var addResult = await users.AddToRoleAsync(user, normalizedRole);
+            if (!addResult.Succeeded)
+                throw new AppValidationException(string.Join(" ", addResult.Errors.Select(e => e.Description)));
+
+            // Revoke previously issued JWT tokens so role changes take effect immediately.
+            await users.UpdateSecurityStampAsync(user);
+
+            if (tx is not null)
+                await tx.CommitAsync();
+
+            log.LogWarning(
+                "Admin {AdminId} changed role of user {TargetUserId} from [{OldRoles}] to {NewRole}",
+                actingAdminId, user.Id, string.Join(", ", currentRoles), normalizedRole);
+        }
+        finally
         {
-            var removeResult = await users.RemoveFromRolesAsync(user, currentRoles);
-            if (!removeResult.Succeeded)
-                throw new AppValidationException(string.Join(" ", removeResult.Errors.Select(e => e.Description)));
+            AdminStateLock.Release();
         }
-
-        var addResult = await users.AddToRoleAsync(user, normalizedRole);
-        if (!addResult.Succeeded)
-            throw new AppValidationException(string.Join(" ", addResult.Errors.Select(e => e.Description)));
-
-        log.LogWarning(
-            "Admin {AdminId} changed role of user {TargetUserId} from [{OldRoles}] to {NewRole}",
-            actingAdminId, user.Id, string.Join(", ", currentRoles), normalizedRole);
     }
 
     public async Task SetActiveAsync(Guid targetUserId, bool isActive, Guid actingAdminId)
@@ -113,31 +143,46 @@ public class UserService(
         if (!isActive && targetUserId == actingAdminId)
             throw new AppValidationException("You cannot deactivate yourself.");
 
-        var user = await users.FindByIdAsync(targetUserId.ToString())
-            ?? throw new NotFoundException("User was not found.");
-
-        if (!isActive)
+        await AdminStateLock.WaitAsync();
+        try
         {
-            var currentRoles = await users.GetRolesAsync(user) ?? [];
-            if (currentRoles.Contains(Roles.Admin))
+            await using var tx = db is not null && db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable)
+                : null;
+
+            var user = await users.FindByIdAsync(targetUserId.ToString())
+                ?? throw new NotFoundException("User was not found.");
+
+            if (!isActive)
             {
-                var admins = await users.GetUsersInRoleAsync(Roles.Admin);
-                if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
-                    throw new AppValidationException("Cannot deactivate the last active admin.");
+                var currentRoles = await users.GetRolesAsync(user) ?? [];
+                if (currentRoles.Contains(Roles.Admin))
+                {
+                    var admins = await users.GetUsersInRoleAsync(Roles.Admin);
+                    if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
+                        throw new AppValidationException("Cannot deactivate the last active admin.");
+                }
             }
+
+            user.IsActive = isActive;
+            var updateResult = await users.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+                throw new AppValidationException(string.Join(" ", updateResult.Errors.Select(e => e.Description)));
+
+            if (!isActive)
+                await users.UpdateSecurityStampAsync(user);
+
+            if (tx is not null)
+                await tx.CommitAsync();
+
+            log.LogWarning(
+                "Admin {AdminId} set user {TargetUserId} active={IsActive}",
+                actingAdminId, user.Id, isActive);
         }
-
-        user.IsActive = isActive;
-        var updateResult = await users.UpdateAsync(user);
-        if (!updateResult.Succeeded)
-            throw new AppValidationException(string.Join(" ", updateResult.Errors.Select(e => e.Description)));
-
-        if (!isActive)
-            await users.UpdateSecurityStampAsync(user);
-
-        log.LogWarning(
-            "Admin {AdminId} set user {TargetUserId} active={IsActive}",
-            actingAdminId, user.Id, isActive);
+        finally
+        {
+            AdminStateLock.Release();
+        }
     }
 }
 

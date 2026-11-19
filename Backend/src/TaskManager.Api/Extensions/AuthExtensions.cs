@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -57,6 +58,41 @@ public static class AuthExtensions
                 };
                 o.Events = new JwtBearerEvents
                 {
+                    OnTokenValidated = async ctx =>
+                    {
+                        var userIdStr = ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+                        if (!Guid.TryParse(userIdStr, out var userId))
+                        {
+                            ctx.Fail("Invalid user identifier in token.");
+                            return;
+                        }
+
+                        var userManager = ctx.HttpContext.RequestServices.GetRequiredService<UserManager<ApplicationUser>>();
+                        var user = await userManager.FindByIdAsync(userId.ToString());
+                        if (user is null || !user.IsActive)
+                        {
+                            ctx.Fail("User account is inactive or no longer exists.");
+                            return;
+                        }
+
+                        var tokenStamp = ctx.Principal?.FindFirstValue(JwtTokenService.SecurityStampClaimType);
+                        var currentStamp = user.SecurityStamp ?? string.Empty;
+                        if (!string.Equals(tokenStamp, currentStamp, StringComparison.Ordinal))
+                        {
+                            ctx.Fail("Security stamp mismatch; token has been revoked.");
+                            return;
+                        }
+
+                        if (ctx.Principal?.Identity is ClaimsIdentity identity)
+                        {
+                            foreach (var existingRole in identity.FindAll(ClaimTypes.Role).ToList())
+                                identity.RemoveClaim(existingRole);
+
+                            var currentRoles = await userManager.GetRolesAsync(user);
+                            foreach (var role in currentRoles)
+                                identity.AddClaim(new Claim(ClaimTypes.Role, role));
+                        }
+                    },
                     OnChallenge = async ctx =>                     // 401 -> ProblemDetails
                     {
                         ctx.HandleResponse();
@@ -84,12 +120,19 @@ public static class AuthExtensions
         services.AddRateLimiter(o =>
         {
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            o.AddFixedWindowLimiter(AuthRateLimitPolicy, l =>
+            var permitLimit = config.GetValue("RateLimiting:AuthPermitLimit", 10);
+            o.AddPolicy(AuthRateLimitPolicy, httpContext =>
             {
-                l.PermitLimit = config.GetValue("RateLimiting:AuthPermitLimit", 10);
-                l.Window = TimeSpan.FromMinutes(1);
-                l.QueueLimit = 0;
-                l.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                var clientKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: clientKey,
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = permitLimit,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+                    });
             });
         });
 

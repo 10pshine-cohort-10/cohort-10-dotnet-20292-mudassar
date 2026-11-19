@@ -69,7 +69,7 @@ public class TasksController(ITaskService tasks) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<TaskDto>> UpdateStatus(int id, UpdateTaskStatusDto dto)
-        => Ok(await tasks.UpdateStatusAsync(id, dto.Status, User.GetUserId(), User.IsAdmin()));
+        => Ok(await tasks.UpdateStatusAsync(id, dto.Status!.Value, User.GetUserId(), User.IsAdmin()));
 
     [HttpDelete("{id:int}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

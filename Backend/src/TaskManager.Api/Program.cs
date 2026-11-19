@@ -32,7 +32,13 @@ try
     builder.Services.AddSwaggerWithJwt();
 
     builder.Services.AddDbContext<AppDbContext>(o =>
-        o.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    {
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException(
+                "ConnectionStrings:DefaultConnection is missing or empty. Set it in .env, user-secrets, or appsettings.");
+        o.UseSqlServer(connectionString);
+    });
 
     var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
     builder.Services.AddCors(o => o.AddPolicy("Frontend",
@@ -43,8 +49,9 @@ try
     // ---------- Pipeline ----------
     var app = builder.Build();
 
-    app.UseMiddleware<GlobalExceptionMiddleware>();   // first, so it wraps everything
-    app.UseSerilogRequestLogging(options =>           // one structured log line per HTTP request
+    app.UseHttpsRedirection();
+    app.UseCors("Frontend");                          // before exception & auth middleware so error responses keep CORS headers
+    app.UseSerilogRequestLogging(options =>           // before GlobalExceptionMiddleware so it observes final handled status codes
     {
         options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
         {
@@ -55,6 +62,7 @@ try
             diagnosticContext.Set("TraceId", httpContext.TraceIdentifier);
         };
     });
+    app.UseMiddleware<GlobalExceptionMiddleware>();   // wraps downstream pipeline in ProblemDetails
 
     if (app.Environment.IsDevelopment())
     {
@@ -62,8 +70,6 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
-    app.UseCors("Frontend");
     app.UseRateLimiter();
     app.UseAuthentication();                          // MUST come before UseAuthorization
     app.UseMiddleware<UserLogContextMiddleware>();    // pushes UserId into Serilog LogContext

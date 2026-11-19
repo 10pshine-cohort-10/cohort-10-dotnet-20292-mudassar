@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using TaskManager.Api.Data;
 using TaskManager.Api.DTOs;
@@ -47,6 +48,8 @@ public class CategoryService(
     [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
     public async Task<CategoryDto> CreateAsync(SaveCategoryDto dto, Guid actingAdminId)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+
         var name = dto.Name?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(name))
             throw new AppValidationException("Category name is required.");
@@ -76,6 +79,8 @@ public class CategoryService(
     [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
     public async Task<CategoryDto> UpdateAsync(int id, SaveCategoryDto dto, Guid actingAdminId)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+
         var category = await db.Categories.FirstOrDefaultAsync(c => c.Id == id)
             ?? throw new NotFoundException(CategoryNotFoundMessage);
 
@@ -129,11 +134,28 @@ public class CategoryService(
         {
             await db.SaveChangesAsync();
         }
-        catch (DbUpdateException ex)
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
             log.LogWarning(ex, "Database unique constraint violation for category '{CategoryName}'", name);
             throw new ConflictException($"Category '{name}' already exists.");
         }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        if (ex.InnerException is SqlException sqlEx && sqlEx.Number is 2601 or 2627)
+            return true;
+
+        var inner = ex.InnerException;
+        if (inner is not null)
+        {
+            var typeName = inner.GetType().Name;
+            if (string.Equals(typeName, "SqliteException", StringComparison.Ordinal) &&
+                inner.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 }
 

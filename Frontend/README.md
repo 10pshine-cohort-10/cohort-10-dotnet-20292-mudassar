@@ -16,11 +16,9 @@ React single-page app for the Task Management Tool. It talks to the ASP.NET Core
 ## Quick Start
 
 ```bash
-npm create vite@latest frontend -- --template react
-cd frontend
-npm install axios react-router-dom react-hook-form zod @hookform/resolvers
-npm install -D vitest @testing-library/react @testing-library/jest-dom jsdom eslint prettier
-cp .env.example .env
+cd Frontend
+npm install
+cp env.example .env
 npm run dev          # http://localhost:5173
 ```
 
@@ -37,9 +35,9 @@ VITE_API_BASE_URL=https://localhost:5001/api
 |---|---|
 | `npm run dev` | Dev server |
 | `npm run build` | Production build |
-| `npm run test` | Unit tests (Vitest) |
-| `npm run lint` | ESLint |
-| `npm run sonar` | SonarQube scan (see below) |
+| `npm run preview` | Preview production build |
+| `npm run lint` | ESLint static analysis |
+| `npm run sonar` | SonarQube scan (requires `sonar-scanner`) |
 
 ## Project Structure
 
@@ -257,38 +255,13 @@ conn.on("TaskUpdated", () => refetch());
 conn.start();
 ```
 
-## Testing
-
-```bash
-npm run test
-```
-
-Cover: `ProtectedRoute` redirects, login form validation, `getErrorMessage`, Task form submit (mock Axios), Dashboard render.
-
-```jsx
-test("shows validation error when title empty", async () => {
-  render(<TaskForm />);
-  await userEvent.click(screen.getByRole("button", { name: /save/i }));
-  expect(await screen.findByText(/title is required/i)).toBeInTheDocument();
-});
-```
-
 ## SonarQube
 
-`sonar-project.properties`
-```
-sonar.projectKey=task-manager-web
-sonar.sources=src
-sonar.exclusions=**/*.test.jsx,**/node_modules/**
-sonar.tests=src
-sonar.test.inclusions=**/*.test.jsx
-sonar.javascript.lcov.reportPaths=coverage/lcov.info
-sonar.host.url=http://localhost:9000
-```
+Uses [sonar-project.properties](./sonar-project.properties):
 
 ```bash
-npm run test -- --coverage
-npx sonar-scanner -Dsonar.token=$SONAR_TOKEN
+npm run lint
+npm run sonar -- -Dsonar.token=$SONAR_TOKEN
 ```
 
 ## Git Workflow

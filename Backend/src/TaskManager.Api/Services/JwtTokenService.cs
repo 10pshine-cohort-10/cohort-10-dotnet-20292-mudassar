@@ -24,15 +24,22 @@ public interface IJwtTokenService
 
 public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
 {
+    public const string SecurityStampClaimType = "security_stamp";
+
     private readonly JwtOptions _o = options.Value;
 
     public (string Token, DateTime ExpiresAt) Create(ApplicationUser user, IList<string> roles)
     {
+        ArgumentNullException.ThrowIfNull(user);
+        if (string.IsNullOrWhiteSpace(user.Email))
+            throw new InvalidOperationException("Cannot issue a JWT token for a user without an email address.");
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Email, user.Email!),
-            new(ClaimTypes.Name, user.FullName),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Name, user.FullName ?? string.Empty),
+            new(SecurityStampClaimType, user.SecurityStamp ?? string.Empty),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
