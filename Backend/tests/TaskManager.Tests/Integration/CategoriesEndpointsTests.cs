@@ -15,7 +15,9 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         var res = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(factory.AdminEmail, factory.AdminPassword));
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await res.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private async Task<AuthResponse> RegisterAndLoginUserAsync()
@@ -28,7 +30,9 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         var login = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(email, TestEnv.UserPassword));
         login.EnsureSuccessStatusCode();
-        return (await login.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private static HttpRequestMessage Authorized(HttpMethod method, string url, string token, object? body = null)
@@ -86,7 +90,8 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
         Assert.NotNull(createRes.Headers.Location);
         var created = await createRes.Content.ReadFromJsonAsync<CategoryDto>();
-        Assert.Equal(uniqueName, created!.Name);
+        Assert.NotNull(created);
+        Assert.Equal(uniqueName, created.Name);
 
         // 2. Duplicate create (different case) -> 409 Conflict
         using var dupReq = Authorized(
@@ -112,7 +117,8 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         var updateRes = await _client.SendAsync(updateReq);
         Assert.Equal(HttpStatusCode.OK, updateRes.StatusCode);
         var updated = await updateRes.Content.ReadFromJsonAsync<CategoryDto>();
-        Assert.Equal(updatedName, updated!.Name);
+        Assert.NotNull(updated);
+        Assert.Equal(updatedName, updated.Name);
         Assert.Equal("Updated description", updated.Description);
 
         // 5. Delete -> 204 NoContent

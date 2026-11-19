@@ -27,7 +27,8 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         Assert.Equal("application/problem+json", res.Content.Headers.ContentType?.MediaType);
         var problem = await res.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.Equal(401, problem!.Status);
+        Assert.NotNull(problem);
+        Assert.Equal(401, problem.Status);
     }
 
     [Fact]
@@ -49,19 +50,22 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
             new RegisterDto(TestEnv.UserName, email, TestEnv.UserPassword));
         Assert.Equal(HttpStatusCode.Created, reg.StatusCode);
         var registered = await reg.Content.ReadFromJsonAsync<UserInfoDto>();
-        Assert.Equal(new[] { Roles.User }, registered!.Roles);
+        Assert.NotNull(registered);
+        Assert.Equal(new[] { Roles.User }, registered.Roles);
 
         var login = await _client.PostAsJsonAsync("/api/auth/login", new LoginDto(email, TestEnv.UserPassword));
         Assert.Equal(HttpStatusCode.OK, login.StatusCode);
         var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
-        Assert.False(string.IsNullOrWhiteSpace(auth!.Token));
+        Assert.NotNull(auth);
+        Assert.False(string.IsNullOrWhiteSpace(auth.Token));
 
         using var meReq = new HttpRequestMessage(HttpMethod.Get, "/api/auth/me");
         meReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth.Token);
         var me = await _client.SendAsync(meReq);
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
         var meDto = await me.Content.ReadFromJsonAsync<UserInfoDto>();
-        Assert.Equal(email, meDto!.Email);
+        Assert.NotNull(meDto);
+        Assert.Equal(email, meDto.Email);
 
         using var logoutReq = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
         logoutReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", auth.Token);
@@ -98,7 +102,8 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         var problem = await res.Content.ReadFromJsonAsync<ProblemDetails>();
-        Assert.Equal("Invalid email or password.", problem!.Title);
+        Assert.NotNull(problem);
+        Assert.Equal("Invalid email or password.", problem.Title);
     }
 
     [Fact]
@@ -109,7 +114,8 @@ public class AuthEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiF
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var auth = await res.Content.ReadFromJsonAsync<AuthResponse>();
-        Assert.Contains(Roles.Admin, auth!.User.Roles);
+        Assert.NotNull(auth);
+        Assert.Contains(Roles.Admin, auth.User.Roles);
     }
 
     [Fact]

@@ -112,6 +112,7 @@ public class TaskService(
     public async Task<TaskDto> CreateAsync(CreateTaskDto dto, Guid userId)
     {
         var title = ValidateTitle(dto.Title);
+        ValidatePriority(dto.Priority);
 
         if (dto.DueDate.HasValue && dto.DueDate.Value.Date < DateTime.UtcNow.Date)
             throw new AppValidationException("Due date cannot be in the past.");
@@ -155,6 +156,8 @@ public class TaskService(
         EnsureAccess(task, userId, isAdmin);
 
         var title = ValidateTitle(dto.Title);
+        ValidateStatus(dto.Status);
+        ValidatePriority(dto.Priority);
         await ValidateReferencesAsync(dto.CategoryId, dto.AssignedToId);
 
         if (!string.IsNullOrWhiteSpace(dto.RowVersion))
@@ -206,6 +209,8 @@ public class TaskService(
 
     public async Task<TaskDto> UpdateStatusAsync(int id, TaskItemStatus status, Guid userId, bool isAdmin)
     {
+        ValidateStatus(status);
+
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id)
             ?? throw new NotFoundException(TaskNotFoundMessage);
 
@@ -273,6 +278,18 @@ public class TaskService(
         if (title.Length < 2)
             throw new AppValidationException("Task title must be at least 2 characters.");
         return title;
+    }
+
+    private static void ValidatePriority(TaskPriority priority)
+    {
+        if (!Enum.IsDefined(priority))
+            throw new AppValidationException("Invalid task priority value.");
+    }
+
+    private static void ValidateStatus(TaskItemStatus status)
+    {
+        if (!Enum.IsDefined(status))
+            throw new AppValidationException("Invalid task status value.");
     }
 
     private async Task ValidateReferencesAsync(int? categoryId, Guid? assignedToId)
