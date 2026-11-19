@@ -12,6 +12,9 @@ jobs:
   sonarqube:
     name: Analyze C# (.NET) & JavaScript (React)
     runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
     steps:
       - name: Checkout repository
@@ -44,10 +47,7 @@ jobs:
           npm run build
 
       - name: Run SonarQube Scanner (when SONAR_TOKEN is configured)
-        if: ${{ secrets.SONAR_TOKEN != '' && secrets.SONAR_HOST_URL != '' }}
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' }}
         run: |
           dotnet sonarscanner begin \
             /k:"cohort-10-dotnet-20292-mudassar" \
