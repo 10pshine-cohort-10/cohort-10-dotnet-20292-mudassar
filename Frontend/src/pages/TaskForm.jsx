@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createTask, getTaskById, updateTask } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
@@ -7,8 +7,14 @@ import { getErrorMessage } from "../utils/errorMessage";
 import ErrorAlert from "../components/ErrorAlert";
 import Field from "../components/Field";
 
-const toDateInput = (iso) => (iso ? new Date(iso).toISOString().slice(0, 10) : "");
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const toDateInput = (iso) => (iso ? String(iso).slice(0, 10) : "");
+const todayStr = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
 
 export default function TaskForm() {
   const { id } = useParams();
@@ -27,46 +33,52 @@ export default function TaskForm() {
   const [categories, setCategories] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
 
-  useEffect(() => {
-    let active = true;
-    const init = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const [catsRes, usersRes, taskRes] = await Promise.all([
-          getCategories().catch(() => []),
-          getUserLookup().catch(() => []),
-          isEdit ? getTaskById(id) : Promise.resolve(null)
-        ]);
-        if (!active) return;
-        setCategories(catsRes);
-        setUsers(usersRes);
+  const loadForm = useCallback(async (isActiveRef) => {
+    setLoading(true);
+    setLoadFailed(false);
+    setError("");
+    try {
+      const [catsRes, usersRes, taskRes] = await Promise.all([
+        getCategories().catch(() => []),
+        getUserLookup().catch(() => []),
+        isEdit ? getTaskById(id) : Promise.resolve(null),
+      ]);
+      if (!isActiveRef.current) return;
+      setCategories(catsRes);
+      setUsers(usersRes);
 
-        if (taskRes) {
-          setTitle(taskRes.title || "");
-          setDescription(taskRes.description || "");
-          setStatus(taskRes.status || "Pending");
-          setPriority(taskRes.priority || "Medium");
-          setDueDate(toDateInput(taskRes.dueDate));
-          setCategoryId(taskRes.categoryId ? String(taskRes.categoryId) : "");
-          setAssignedToId(taskRes.assignedToId || "");
-          setRowVersion(taskRes.rowVersion || "");
-        }
-      } catch (e) {
-        if (active) setError(getErrorMessage(e));
-      } finally {
-        if (active) setLoading(false);
+      if (taskRes) {
+        setTitle(taskRes.title || "");
+        setDescription(taskRes.description || "");
+        setStatus(taskRes.status || "Pending");
+        setPriority(taskRes.priority || "Medium");
+        setDueDate(toDateInput(taskRes.dueDate));
+        setCategoryId(taskRes.categoryId ? String(taskRes.categoryId) : "");
+        setAssignedToId(taskRes.assignedToId || "");
+        setRowVersion(taskRes.rowVersion || "");
       }
-    };
-    void init();
-    return () => {
-      active = false;
-    };
+    } catch (e) {
+      if (isActiveRef.current) {
+        setError(getErrorMessage(e));
+        if (isEdit) setLoadFailed(true);
+      }
+    } finally {
+      if (isActiveRef.current) setLoading(false);
+    }
   }, [id, isEdit]);
+
+  useEffect(() => {
+    const activeRef = { current: true };
+    void loadForm(activeRef);
+    return () => {
+      activeRef.current = false;
+    };
+  }, [loadForm]);
 
   const validate = () => {
     const errs = {};
@@ -92,7 +104,7 @@ export default function TaskForm() {
         title: title.trim(),
         description: description.trim() || null,
         priority,
-        dueDate: dueDate ? new Date(`${dueDate}T00:00:00Z`).toISOString() : null,
+        dueDate: dueDate || null,
         categoryId: categoryId ? Number(categoryId) : null,
         assignedToId: assignedToId || null
       };
@@ -122,6 +134,20 @@ export default function TaskForm() {
         <div className="skel" style={{ height: 44, marginBottom: 14 }} />
         <div className="skel" style={{ height: 96, marginBottom: 14 }} />
       </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <>
+        <ErrorAlert message={error || "Could not load task for editing."} />
+        <div className="row-actions">
+          <button type="button" className="btn-primary" onClick={() => void loadForm({ current: true })}>
+            Retry
+          </button>
+          <Link to="/tasks" className="btn-ghost">Back to Tasks</Link>
+        </div>
+      </>
     );
   }
 

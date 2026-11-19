@@ -13,7 +13,12 @@ import PriorityBadge from "../components/PriorityBadge";
 const RANK = { Critical: 4, High: 3, Medium: 2, Low: 1 };
 const fmt = (d) =>
   d
-    ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+    ? new Date(d).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      })
     : "No due date";
 
 const ZERO_SUMMARY = { completed: 0, inProgress: 0, pending: 0, total: 0 };
@@ -32,7 +37,7 @@ export default function Dashboard() {
 
   const [summary, setSummary] = useState(() => cached?.summary ?? null);
   const [recent, setRecent] = useState(() => cached?.recent ?? []);
-  const [hasLoaded, setHasLoaded] = useState(() => Boolean(cached));
+  const [tasksLoadedOk, setTasksLoadedOk] = useState(() => Boolean(cached));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,16 +58,24 @@ export default function Dashboard() {
     ]);
     if (signal.aborted || isCanceledResult(tasksRes) || isCanceledResult(summaryRes)) return;
 
-    const nextRecent =
-      tasksRes.status === "fulfilled" ? tasksRes.value?.items ?? [] : cached?.recent ?? [];
-    const nextSummary =
-      summaryRes.status === "fulfilled" ? summaryRes.value ?? ZERO_SUMMARY : cached?.summary ?? null;
+    if (tasksRes.status === "fulfilled") {
+      setRecent(tasksRes.value?.items ?? []);
+      setTasksLoadedOk(true);
+    } else {
+      setRecent((prev) => prev);
+    }
 
-    setRecent(nextRecent);
-    setSummary(nextSummary);
-    setHasLoaded(true);
+    if (summaryRes.status === "fulfilled") {
+      setSummary(summaryRes.value ?? ZERO_SUMMARY);
+    } else {
+      setSummary((prev) => prev);
+    }
+
     if (summaryRes.status === "fulfilled" && tasksRes.status === "fulfilled") {
-      setPageCache(cacheKey, { summary: nextSummary, recent: nextRecent });
+      setPageCache(cacheKey, {
+        summary: summaryRes.value ?? ZERO_SUMMARY,
+        recent: tasksRes.value?.items ?? [],
+      });
     }
 
     const firstFailure = [summaryRes, tasksRes].find((r) => r.status === "rejected");
@@ -108,7 +121,7 @@ export default function Dashboard() {
         <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={false} />
       </section>
 
-      {hasLoaded && recent.length === 0 && (
+      {tasksLoadedOk && recent.length === 0 && (
         <div className="empty">
           <h2>No tasks yet</h2>
           <p>Create a task to start tracking your work.</p>

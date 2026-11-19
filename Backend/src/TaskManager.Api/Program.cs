@@ -12,7 +12,10 @@ await EnvFileLoader.LoadAsync();
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .Enrich.FromLogContext()
-    .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
+    .WriteTo.Async(
+        a => a.Console(formatProvider: CultureInfo.InvariantCulture),
+        bufferSize: 10000,
+        blockWhenFull: false)
     .CreateLogger();
 
 try

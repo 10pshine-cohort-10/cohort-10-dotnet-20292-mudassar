@@ -25,7 +25,10 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
         (await _client.PostAsJsonAsync("/api/auth/register",
             new RegisterDto("Dash User", email, TestEnv.UserPassword))).EnsureSuccessStatusCode();
         var login = await _client.PostAsJsonAsync("/api/auth/login", new LoginDto(email, TestEnv.UserPassword));
-        var token = (await login.Content.ReadFromJsonAsync<AuthResponse>())!.Token;
+        login.EnsureSuccessStatusCode();
+        var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        var token = auth.Token;
 
         HttpRequestMessage Req(HttpMethod m, string url, object? body = null)
         {
@@ -35,12 +38,29 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
             return r;
         }
 
+        // Create a second user with their own task (unassigned to first user) to verify ownership scoping
+        var otherEmail = $"other-{Guid.NewGuid():N}@example.com";
+        (await _client.PostAsJsonAsync("/api/auth/register",
+            new RegisterDto("Other User", otherEmail, TestEnv.UserPassword))).EnsureSuccessStatusCode();
+        var otherLogin = await _client.PostAsJsonAsync("/api/auth/login", new LoginDto(otherEmail, TestEnv.UserPassword));
+        otherLogin.EnsureSuccessStatusCode();
+        var otherAuth = await otherLogin.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(otherAuth);
+        using (var otherTaskReq = new HttpRequestMessage(HttpMethod.Post, "/api/tasks"))
+        {
+            otherTaskReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", otherAuth.Token);
+            otherTaskReq.Content = JsonContent.Create(new CreateTaskDto("Other User Private Task"));
+            (await _client.SendAsync(otherTaskReq)).EnsureSuccessStatusCode();
+        }
+
         var ids = new List<int>();
         for (var i = 0; i < 3; i++)
         {
-            var created = await (await _client.SendAsync(Req(HttpMethod.Post, "/api/tasks", new CreateTaskDto($"Task {i}"))))
-                .Content.ReadFromJsonAsync<TaskDto>();
-            ids.Add(created!.Id);
+            var createdRes = await _client.SendAsync(Req(HttpMethod.Post, "/api/tasks", new CreateTaskDto($"Task {i}")));
+            createdRes.EnsureSuccessStatusCode();
+            var created = await createdRes.Content.ReadFromJsonAsync<TaskDto>();
+            Assert.NotNull(created);
+            ids.Add(created.Id);
         }
 
         (await _client.SendAsync(Req(HttpMethod.Patch, $"/api/tasks/{ids[0]}/status",
@@ -52,20 +72,24 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
         var res = await _client.SendAsync(Req(HttpMethod.Get, "/api/dashboard/summary"));
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var summary = await res.Content.ReadFromJsonAsync<DashboardSummaryDto>();
+        Assert.NotNull(summary);
 
         Assert.Equal(new DashboardSummaryDto(Completed: 1, InProgress: 1, Pending: 0, Total: 2), summary);
 
-        // Admin sees all users' non-deleted tasks across statuses
+        // Admin sees all users' non-deleted tasks across statuses (2 from user 1 + 1 from user 2)
         var adminLogin = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(factory.AdminEmail, factory.AdminPassword));
-        var adminToken = (await adminLogin.Content.ReadFromJsonAsync<AuthResponse>())!.Token;
+        adminLogin.EnsureSuccessStatusCode();
+        var adminAuth = await adminLogin.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(adminAuth);
 
         using var adminReq = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard/summary");
-        adminReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        adminReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.Token);
         var adminRes = await _client.SendAsync(adminReq);
         Assert.Equal(HttpStatusCode.OK, adminRes.StatusCode);
         var adminSummary = await adminRes.Content.ReadFromJsonAsync<DashboardSummaryDto>();
-        Assert.True(adminSummary!.Total >= 2);
+        Assert.NotNull(adminSummary);
+        Assert.True(adminSummary.Total >= 3);
     }
 }
 

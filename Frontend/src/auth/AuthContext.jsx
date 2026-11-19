@@ -49,6 +49,24 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     void restoreSession();
+
+    const handleStorage = (event) => {
+      if (event.key !== "token") return;
+      sessionVersionRef.current += 1;
+      logoutInFlightRef.current = false;
+      clearPageCache();
+      if (!event.newValue) {
+        setUser(null);
+        setRestoreError("");
+        setLoading(false);
+        return;
+      }
+      setUser(null);
+      void restoreSession();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, [restoreSession]);
 
   const login = useCallback(async (email, password) => {

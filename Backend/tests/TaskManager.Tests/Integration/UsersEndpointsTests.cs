@@ -16,7 +16,9 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var res = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(factory.AdminEmail, factory.AdminPassword));
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await res.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private async Task<AuthResponse> RegisterAndLoginUserAsync(string? fullName = null)
@@ -29,7 +31,9 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var login = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(email, TestEnv.UserPassword));
         login.EnsureSuccessStatusCode();
-        return (await login.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private static HttpRequestMessage Authorized(HttpMethod method, string url, string token, object? body = null)
@@ -91,7 +95,8 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var okRes = await _client.SendAsync(okReq);
         Assert.Equal(HttpStatusCode.OK, okRes.StatusCode);
         var dto = await okRes.Content.ReadFromJsonAsync<UserDto>();
-        Assert.Equal(userAuth.User.Email, dto!.Email);
+        Assert.NotNull(dto);
+        Assert.Equal(userAuth.User.Email, dto.Email);
 
         using var missingReq = Authorized(HttpMethod.Get, $"/api/users/{Guid.NewGuid()}", adminAuth.Token);
         var missingRes = await _client.SendAsync(missingReq);
@@ -117,7 +122,8 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         using var getReq = Authorized(HttpMethod.Get, $"/api/users/{userAuth.User.Id}", adminAuth.Token);
         var getRes = await _client.SendAsync(getReq);
         var updatedUser = await getRes.Content.ReadFromJsonAsync<UserDto>();
-        Assert.Equal([Roles.Admin], updatedUser!.Roles);
+        Assert.NotNull(updatedUser);
+        Assert.Equal([Roles.Admin], updatedUser.Roles);
 
         // User's pre-promotion token is now revoked because security stamp changed -> 401
         using var staleTokenReq = Authorized(HttpMethod.Get, "/api/auth/me", userAuth.Token);
@@ -192,7 +198,8 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var updated = await res.Content.ReadFromJsonAsync<UserInfoDto>();
-        Assert.Equal("After Name", updated!.FullName);
+        Assert.NotNull(updated);
+        Assert.Equal("After Name", updated.FullName);
     }
 
     [Fact]
@@ -207,6 +214,51 @@ public class UsersEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
 
         var res = await _client.SendAsync(req);
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task SetActive_TwoAdminsAuthenticatedBeforeFirstDeactivation_CannotLeaveZeroActiveAdmins()
+    {
+        var primaryAdmin = await LoginAdminAsync();
+        var secondUser = await RegisterAndLoginUserAsync("Second Admin");
+
+        // Promote second user to Admin and log them in before any deactivation occurs
+        using (var promoteReq = Authorized(
+            HttpMethod.Put,
+            $"/api/users/{secondUser.User.Id}/role",
+            primaryAdmin.Token,
+            new ChangeRoleDto(Roles.Admin)))
+        {
+            (await _client.SendAsync(promoteReq)).EnsureSuccessStatusCode();
+        }
+
+        var secondAdminLogin = await _client.PostAsJsonAsync("/api/auth/login",
+            new LoginDto(secondUser.User.Email, TestEnv.UserPassword));
+        secondAdminLogin.EnsureSuccessStatusCode();
+        var secondAdmin = await secondAdminLogin.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(secondAdmin);
+
+        // Primary admin deactivates second admin -> succeeds (primary admin remains active)
+        using (var deactivateSecondReq = Authorized(
+            HttpMethod.Put,
+            $"/api/users/{secondAdmin.User.Id}/active",
+            primaryAdmin.Token,
+            new SetActiveDto(false)))
+        {
+            var deactivateSecondRes = await _client.SendAsync(deactivateSecondReq);
+            Assert.Equal(HttpStatusCode.NoContent, deactivateSecondRes.StatusCode);
+        }
+
+        // Second admin attempts to deactivate primary admin using their pre-issued token -> rejected
+        using var deactivatePrimaryReq = Authorized(
+            HttpMethod.Put,
+            $"/api/users/{primaryAdmin.User.Id}/active",
+            secondAdmin.Token,
+            new SetActiveDto(false));
+        var deactivatePrimaryRes = await _client.SendAsync(deactivatePrimaryReq);
+        Assert.True(
+            deactivatePrimaryRes.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.BadRequest,
+            $"Expected 401 or 400, got {deactivatePrimaryRes.StatusCode}");
     }
 }
 

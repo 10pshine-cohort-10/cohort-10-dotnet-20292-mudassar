@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { getMe, updateMe } from "../api/authApi";
@@ -24,12 +24,14 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const hasInteractedRef = useRef(false);
 
   // Operation: Get user info from backend and display
   useEffect(() => {
     const controller = new AbortController();
     getMe({ signal: controller.signal })
       .then((freshUser) => {
+        if (hasInteractedRef.current) return;
         setProfile(freshUser);
         setFullName(freshUser.fullName ?? "");
         setUser?.(freshUser);
@@ -48,6 +50,7 @@ export default function Profile() {
 
   const handleSaveName = async (e) => {
     e.preventDefault();
+    hasInteractedRef.current = true;
     const trimmed = fullName.trim();
     if (trimmed.length < 2) {
       setError("Full name must be at least 2 characters.");
@@ -156,7 +159,14 @@ export default function Profile() {
           </form>
         ) : (
           <div className="form-actions profile-actions">
-            <button type="button" className="btn-ghost" onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => {
+                hasInteractedRef.current = true;
+                setEditing(true);
+              }}
+            >
               Edit Name
             </button>
             <button type="button" className="btn-ghost btn-danger" onClick={handleLogout}>

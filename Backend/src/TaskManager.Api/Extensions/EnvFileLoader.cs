@@ -18,8 +18,9 @@ public static class EnvFileLoader
 
     public static async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        var envPath = FindEnvFile(Directory.GetCurrentDirectory())
-                      ?? FindEnvFile(AppContext.BaseDirectory);
+        var envPath = await Task.Run(
+            () => FindEnvFile(Directory.GetCurrentDirectory()) ?? FindEnvFile(AppContext.BaseDirectory),
+            cancellationToken);
         if (envPath is null)
             return;
 

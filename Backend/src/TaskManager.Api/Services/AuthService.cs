@@ -109,7 +109,11 @@ public class AuthService(
             throw new NotFoundException("User was not found.");
         }
 
-        user.FullName = dto.FullName.Trim();
+        var trimmedName = dto.FullName?.Trim() ?? string.Empty;
+        if (trimmedName.Length < 2 || trimmedName.Length > 100)
+            throw new AppValidationException("Full name must be between 2 and 100 characters.");
+
+        user.FullName = trimmedName;
         var result = await users.UpdateAsync(user);
         if (!result.Succeeded)
             throw new AppValidationException(string.Join(" ", result.Errors.Select(e => e.Description)));

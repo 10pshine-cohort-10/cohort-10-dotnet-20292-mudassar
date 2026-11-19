@@ -16,7 +16,9 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var res = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(factory.AdminEmail, factory.AdminPassword));
         res.EnsureSuccessStatusCode();
-        return (await res.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await res.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private async Task<AuthResponse> RegisterAndLoginUserAsync(string name = "Task User")
@@ -29,7 +31,9 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var login = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginDto(email, TestEnv.UserPassword));
         login.EnsureSuccessStatusCode();
-        return (await login.Content.ReadFromJsonAsync<AuthResponse>())!;
+        var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(auth);
+        return auth;
     }
 
     private static HttpRequestMessage Authorized(HttpMethod method, string url, string token, object? body = null)
@@ -91,7 +95,8 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         var patchRes = await _client.SendAsync(patchReq);
         Assert.Equal(HttpStatusCode.OK, patchRes.StatusCode);
         var afterPatch = await patchRes.Content.ReadFromJsonAsync<TaskDto>();
-        Assert.Equal(TaskItemStatus.InProgress, afterPatch!.Status);
+        Assert.NotNull(afterPatch);
+        Assert.Equal(TaskItemStatus.InProgress, afterPatch.Status);
 
         // 5. Optimistic concurrency: stale RowVersion on PUT -> 409 Conflict
         using var stalePutReq = Authorized(
@@ -140,7 +145,8 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         using var listReq = Authorized(HttpMethod.Get, "/api/tasks", owner.Token);
         var listRes = await _client.SendAsync(listReq);
         var page = await listRes.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
-        Assert.DoesNotContain(page!.Items, t => t.Id == created.Id);
+        Assert.NotNull(page);
+        Assert.DoesNotContain(page.Items, t => t.Id == created.Id);
     }
 
     [Fact]
@@ -165,7 +171,8 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
         Assert.Equal(HttpStatusCode.OK, filterRes.StatusCode);
 
         var page = await filterRes.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
-        Assert.Single(page!.Items);
+        Assert.NotNull(page);
+        Assert.Single(page.Items);
         Assert.Equal(uniqueTitle, page.Items[0].Title);
     }
 }

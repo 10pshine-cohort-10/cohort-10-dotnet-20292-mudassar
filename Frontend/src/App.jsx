@@ -28,9 +28,9 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/tasks" element={<TaskList />} />
-          <Route path="/tasks/new" element={<TaskForm />} />
+          <Route path="/tasks/new" element={<TaskForm key="create" />} />
           <Route path="/tasks/:id" element={<TaskDetail />} />
-          <Route path="/tasks/:id/edit" element={<TaskForm />} />
+          <Route path="/tasks/:id/edit" element={<TaskForm key="edit" />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
       </Route>

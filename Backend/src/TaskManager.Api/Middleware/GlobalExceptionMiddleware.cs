@@ -34,7 +34,7 @@ public class GlobalExceptionMiddleware(
         var (status, title) = ex switch
         {
             AppException app => (app.StatusCode, app.Message),
-            BadHttpRequestException badReq => (StatusCodes.Status400BadRequest, badReq.Message),
+            BadHttpRequestException badReq => (badReq.StatusCode, badReq.Message),
             DbUpdateConcurrencyException => (StatusCodes.Status409Conflict, "The record was modified by another user."),
             UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, "Unauthorized."),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")

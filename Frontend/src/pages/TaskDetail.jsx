@@ -9,7 +9,12 @@ import PriorityBadge from "../components/PriorityBadge";
 
 const fmtDate = (d) =>
   d
-    ? new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })
+    ? new Date(d).toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      })
     : "No due date";
 
 export default function TaskDetail() {
@@ -19,6 +24,7 @@ export default function TaskDetail() {
 
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -39,13 +45,16 @@ export default function TaskDetail() {
   }, [load]);
 
   const handleStatusChange = async (newStatus) => {
-    if (!task) return;
+    if (!task || updatingStatus) return;
+    setUpdatingStatus(true);
     setError("");
     try {
       const updated = await updateTaskStatus(task.id, newStatus);
       setTask(updated);
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -109,6 +118,7 @@ export default function TaskDetail() {
               id="detail-status"
               className="filter-select"
               value={task.status}
+              disabled={updatingStatus}
               onChange={(e) => handleStatusChange(e.target.value)}
             >
               <option value="Pending">Pending</option>

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace TaskManager.Api.DTOs;
 
@@ -14,5 +15,5 @@ public record UserLookupDto(Guid Id, string FullName);
 
 public record ChangeRoleDto([Required] string Role);
 
-public record SetActiveDto(bool IsActive);
+public record SetActiveDto([property: JsonRequired] bool IsActive);
 

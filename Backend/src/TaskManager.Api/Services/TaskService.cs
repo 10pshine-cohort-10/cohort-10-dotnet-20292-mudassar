@@ -86,6 +86,7 @@ public class TaskService(
             .Include(t => t.CreatedBy)
             .Include(t => t.AssignedTo)
             .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
             .Skip((int)offset)
             .Take(pageSize)
             .ToListAsync();
@@ -252,6 +253,9 @@ public class TaskService(
         task.IsDeleted = true;
         task.DeletedAt = DateTime.UtcNow;
         task.UpdatedAt = DateTime.UtcNow;
+
+        if (!db.Database.IsSqlServer())
+            task.RowVersion = Guid.NewGuid().ToByteArray()[..8];
 
         db.TaskHistories.Add(new TaskHistory
         {

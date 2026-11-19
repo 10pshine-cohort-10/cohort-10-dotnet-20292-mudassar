@@ -44,10 +44,33 @@ public class UserService(
         }
 
         var result = new List<UserDto>(list.Count);
-        foreach (var u in list)
+        if (db is not null && list.Count > 0)
         {
-            var roles = await users.GetRolesAsync(u);
-            result.Add(new UserDto(u.Id, u.FullName, u.Email!, roles, u.IsActive, u.CreatedAt));
+            var userIds = list.Select(u => u.Id).ToList();
+            var roleRows = await (
+                from ur in db.UserRoles.AsNoTracking()
+                join r in db.Roles.AsNoTracking() on ur.RoleId equals r.Id
+                where userIds.Contains(ur.UserId) && r.Name != null
+                select new { ur.UserId, RoleName = r.Name! }
+            ).ToListAsync();
+
+            var rolesByUser = roleRows
+                .GroupBy(x => x.UserId)
+                .ToDictionary(g => g.Key, g => (IList<string>)g.Select(x => x.RoleName).ToList());
+
+            foreach (var u in list)
+            {
+                var roles = rolesByUser.TryGetValue(u.Id, out var r) ? r : new List<string>();
+                result.Add(new UserDto(u.Id, u.FullName, u.Email!, roles, u.IsActive, u.CreatedAt));
+            }
+        }
+        else
+        {
+            foreach (var u in list)
+            {
+                var roles = await users.GetRolesAsync(u);
+                result.Add(new UserDto(u.Id, u.FullName, u.Email!, roles, u.IsActive, u.CreatedAt));
+            }
         }
 
         return result;
@@ -104,12 +127,8 @@ public class UserService(
                 return;
             }
 
-            if (currentRoles.Contains(Roles.Admin) && normalizedRole != Roles.Admin)
-            {
-                var admins = await users.GetUsersInRoleAsync(Roles.Admin);
-                if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
-                    throw new AppValidationException("Cannot demote the last active admin.");
-            }
+            if (currentRoles.Contains(Roles.Admin) && normalizedRole != Roles.Admin && !await HasAnotherActiveAdminAsync(user.Id))
+                throw new AppValidationException("Cannot demote the last active admin.");
 
             if (currentRoles.Count > 0)
             {
@@ -156,12 +175,8 @@ public class UserService(
             if (!isActive)
             {
                 var currentRoles = await users.GetRolesAsync(user) ?? [];
-                if (currentRoles.Contains(Roles.Admin))
-                {
-                    var admins = await users.GetUsersInRoleAsync(Roles.Admin);
-                    if (admins is not null && !admins.Any(a => a.IsActive && a.Id != user.Id))
-                        throw new AppValidationException("Cannot deactivate the last active admin.");
-                }
+                if (currentRoles.Contains(Roles.Admin) && !await HasAnotherActiveAdminAsync(user.Id))
+                    throw new AppValidationException("Cannot deactivate the last active admin.");
             }
 
             user.IsActive = isActive;
@@ -183,6 +198,23 @@ public class UserService(
         {
             AdminStateLock.Release();
         }
+    }
+
+    private async Task<bool> HasAnotherActiveAdminAsync(Guid excludedUserId)
+    {
+        if (db is not null)
+        {
+            return await (
+                from u in db.Users.AsNoTracking()
+                join ur in db.UserRoles.AsNoTracking() on u.Id equals ur.UserId
+                join r in db.Roles.AsNoTracking() on ur.RoleId equals r.Id
+                where u.IsActive && u.Id != excludedUserId && r.Name == Roles.Admin
+                select u.Id
+            ).AnyAsync();
+        }
+
+        var admins = await users.GetUsersInRoleAsync(Roles.Admin);
+        return admins is null || admins.Any(a => a.IsActive && a.Id != excludedUserId);
     }
 }
 

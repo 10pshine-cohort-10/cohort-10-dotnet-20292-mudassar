@@ -65,10 +65,13 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         {
             if (entry.State == EntityState.Deleted)
             {
-                entry.State = EntityState.Modified;
+                entry.State = EntityState.Unchanged;
                 entry.Entity.IsDeleted = true;
                 entry.Entity.DeletedAt = now;
                 entry.Entity.UpdatedAt = now;
+                entry.Property(t => t.IsDeleted).IsModified = true;
+                entry.Property(t => t.DeletedAt).IsModified = true;
+                entry.Property(t => t.UpdatedAt).IsModified = true;
                 softDeletedTaskIds.Add(entry.Entity.Id);
                 softDeletedTasks.Add(entry.Entity);
             }

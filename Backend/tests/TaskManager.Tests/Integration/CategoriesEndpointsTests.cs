@@ -74,26 +74,39 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         Assert.Equal(categories.Select(c => c.Name).OrderBy(n => n), categories.Select(c => c.Name));
     }
 
-    [Fact]
-    public async Task CategoryCrud_AsAdmin_FullLifecycle()
+    private async Task<CategoryDto> CreateCategoryAsAdminAsync(string token, string name, string? description = null)
     {
-        var adminAuth = await LoginAdminAsync();
-        var uniqueName = $"Cat-{Guid.NewGuid():N}"[..16];
-
-        // 1. Create -> 201 Created + Location header
         using var createReq = Authorized(
             HttpMethod.Post,
             "/api/categories",
-            adminAuth.Token,
-            new SaveCategoryDto(uniqueName, "Initial description"));
+            token,
+            new SaveCategoryDto(name, description));
         var createRes = await _client.SendAsync(createReq);
         Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
         Assert.NotNull(createRes.Headers.Location);
         var created = await createRes.Content.ReadFromJsonAsync<CategoryDto>();
         Assert.NotNull(created);
-        Assert.Equal(uniqueName, created.Name);
+        return created;
+    }
 
-        // 2. Duplicate create (different case) -> 409 Conflict
+    [Fact]
+    public async Task CreateCategory_AsAdmin_Returns201WithLocation()
+    {
+        var adminAuth = await LoginAdminAsync();
+        var uniqueName = $"Cat-{Guid.NewGuid():N}"[..16];
+
+        var created = await CreateCategoryAsAdminAsync(adminAuth.Token, uniqueName, "Initial description");
+        Assert.Equal(uniqueName, created.Name);
+        Assert.Equal("Initial description", created.Description);
+    }
+
+    [Fact]
+    public async Task CreateCategory_DuplicateDifferentCase_Returns409Conflict()
+    {
+        var adminAuth = await LoginAdminAsync();
+        var uniqueName = $"Dup-{Guid.NewGuid():N}"[..16];
+        await CreateCategoryAsAdminAsync(adminAuth.Token, uniqueName, "Initial");
+
         using var dupReq = Authorized(
             HttpMethod.Post,
             "/api/categories",
@@ -101,13 +114,27 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
             new SaveCategoryDto(uniqueName.ToUpperInvariant(), "Duplicate"));
         var dupRes = await _client.SendAsync(dupReq);
         Assert.Equal(HttpStatusCode.Conflict, dupRes.StatusCode);
+    }
 
-        // 3. GetById -> 200 OK
+    [Fact]
+    public async Task GetCategoryById_AsAdmin_Returns200()
+    {
+        var adminAuth = await LoginAdminAsync();
+        var uniqueName = $"Get-{Guid.NewGuid():N}"[..16];
+        var created = await CreateCategoryAsAdminAsync(adminAuth.Token, uniqueName);
+
         using var getReq = Authorized(HttpMethod.Get, $"/api/categories/{created.Id}", adminAuth.Token);
         var getRes = await _client.SendAsync(getReq);
         Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
+    }
 
-        // 4. Update -> 200 OK
+    [Fact]
+    public async Task UpdateCategory_AsAdmin_Returns200WithUpdatedFields()
+    {
+        var adminAuth = await LoginAdminAsync();
+        var uniqueName = $"Upd-{Guid.NewGuid():N}"[..16];
+        var created = await CreateCategoryAsAdminAsync(adminAuth.Token, uniqueName, "Initial");
+
         var updatedName = $"{uniqueName}-Updated";
         using var updateReq = Authorized(
             HttpMethod.Put,
@@ -120,13 +147,19 @@ public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<Te
         Assert.NotNull(updated);
         Assert.Equal(updatedName, updated.Name);
         Assert.Equal("Updated description", updated.Description);
+    }
 
-        // 5. Delete -> 204 NoContent
+    [Fact]
+    public async Task DeleteCategory_AsAdmin_Returns204AndSubsequentGetReturns404()
+    {
+        var adminAuth = await LoginAdminAsync();
+        var uniqueName = $"Del-{Guid.NewGuid():N}"[..16];
+        var created = await CreateCategoryAsAdminAsync(adminAuth.Token, uniqueName);
+
         using var deleteReq = Authorized(HttpMethod.Delete, $"/api/categories/{created.Id}", adminAuth.Token);
         var deleteRes = await _client.SendAsync(deleteReq);
         Assert.Equal(HttpStatusCode.NoContent, deleteRes.StatusCode);
 
-        // 6. GetById after delete -> 404 NotFound
         using var getAfterDeleteReq = Authorized(HttpMethod.Get, $"/api/categories/{created.Id}", adminAuth.Token);
         var getAfterDeleteRes = await _client.SendAsync(getAfterDeleteReq);
         Assert.Equal(HttpStatusCode.NotFound, getAfterDeleteRes.StatusCode);
