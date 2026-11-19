@@ -7,7 +7,7 @@ using TaskManager.Api.Data;
 using TaskManager.Api.Extensions;
 using TaskManager.Api.Middleware;
 
-EnvFileLoader.Load();
+await EnvFileLoader.LoadAsync();
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()

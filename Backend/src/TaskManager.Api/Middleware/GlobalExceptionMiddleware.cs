@@ -18,6 +18,13 @@ public class GlobalExceptionMiddleware(
         }
         catch (Exception ex)
         {
+            if (ctx.Response.HasStarted)
+            {
+                log.LogError(ex, "Unhandled exception after response started on {Method} {Path} (TraceId {TraceId})",
+                    ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier);
+                throw;
+            }
+
             await HandleAsync(ctx, ex);
         }
     }

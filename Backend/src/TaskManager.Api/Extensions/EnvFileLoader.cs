@@ -13,7 +13,22 @@ public static class EnvFileLoader
         if (envPath is null)
             return;
 
-        foreach (var rawLine in File.ReadAllLines(envPath))
+        ApplyLines(File.ReadAllLines(envPath));
+    }
+
+    public static async Task LoadAsync(CancellationToken cancellationToken = default)
+    {
+        var envPath = FindEnvFile(Directory.GetCurrentDirectory())
+                      ?? FindEnvFile(AppContext.BaseDirectory);
+        if (envPath is null)
+            return;
+
+        ApplyLines(await File.ReadAllLinesAsync(envPath, cancellationToken));
+    }
+
+    private static void ApplyLines(string[] lines)
+    {
+        foreach (var rawLine in lines)
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#'))
@@ -33,7 +48,7 @@ public static class EnvFileLoader
                 value = value[1..^1];
             }
 
-            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+            if (Environment.GetEnvironmentVariable(key) is null)
                 Environment.SetEnvironmentVariable(key, value);
         }
     }
