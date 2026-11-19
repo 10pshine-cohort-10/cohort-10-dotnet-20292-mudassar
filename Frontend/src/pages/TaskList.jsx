@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTasks, updateTaskStatus } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
 import { getErrorMessage } from "../utils/errorMessage";
+import { formatDueDate } from "../utils/formatDate";
 import { getPageCache, setPageCache } from "../utils/pageCache";
 import PageHeader from "../components/PageHeader";
 import ErrorAlert from "../components/ErrorAlert";
@@ -12,15 +13,7 @@ import PriorityBadge from "../components/PriorityBadge";
 
 const PAGE_SIZE = 10;
 
-const fmtDate = (d) =>
-  d
-    ? new Date(d).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        timeZone: "UTC",
-      })
-    : "No due date";
+const fmtDate = (d) => formatDueDate(d);
 
 const localTodayStr = () => {
   const now = new Date();
@@ -45,6 +38,17 @@ function parseTaskFilters(searchParams) {
   };
 }
 
+function buildTaskQueryParams({ page, statusFilter, priorityFilter, categoryFilter, searchQuery }) {
+  const params = { page, pageSize: PAGE_SIZE };
+  if (statusFilter) params.status = statusFilter;
+  if (priorityFilter) params.priority = priorityFilter;
+  if (categoryFilter) params.categoryId = Number(categoryFilter);
+  if (searchQuery.trim()) params.search = searchQuery.trim();
+  return params;
+}
+
+const isCanceledError = (e) => e?.code === "ERR_CANCELED" || e?.name === "CanceledError";
+
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,6 +66,8 @@ export default function TaskList() {
 
   const controllerRef = useRef(null);
   const requestGenRef = useRef(0);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
 
   const load = useCallback(async () => {
     controllerRef.current?.abort();
@@ -70,11 +76,13 @@ export default function TaskList() {
     const { signal } = controller;
     const gen = ++requestGenRef.current;
 
-    const params = { page, pageSize: PAGE_SIZE };
-    if (statusFilter) params.status = statusFilter;
-    if (priorityFilter) params.priority = priorityFilter;
-    if (categoryFilter) params.categoryId = Number(categoryFilter);
-    if (searchQuery.trim()) params.search = searchQuery.trim();
+    const params = buildTaskQueryParams({
+      page,
+      statusFilter,
+      priorityFilter,
+      categoryFilter,
+      searchQuery,
+    });
 
     setError("");
     try {
@@ -83,18 +91,31 @@ export default function TaskList() {
         getCategories().catch(() => []),
       ]);
       if (signal.aborted || requestGenRef.current !== gen) return;
-      setData(tasksRes);
-      setCategories(catsRes);
+      const nextData = tasksRes ?? EMPTY_DATA;
+      const nextCats = Array.isArray(catsRes) ? catsRes : [];
+      const computedTotalPages =
+        nextData.totalPages || Math.ceil((nextData.totalCount || 0) / PAGE_SIZE);
+      if (computedTotalPages > 0 && page > computedTotalPages) {
+        const clamped = new URLSearchParams(searchParamsRef.current);
+        clamped.set("page", String(computedTotalPages));
+        setSearchParams(clamped, { replace: true });
+        return;
+      }
+      setData(nextData);
+      setCategories(nextCats);
       setHasLoaded(true);
-      setPageCache(cacheKey, { data: tasksRes, categories: catsRes });
+      setPageCache(cacheKey, { data: nextData, categories: nextCats });
     } catch (e) {
-      if (signal.aborted || requestGenRef.current !== gen || e?.code === "ERR_CANCELED" || e?.name === "CanceledError") {
+      if (signal.aborted || requestGenRef.current !== gen || isCanceledError(e)) {
         return;
       }
       setError(getErrorMessage(e));
       setHasLoaded(true);
     }
-  }, [page, statusFilter, priorityFilter, categoryFilter, searchQuery, cacheKey]);
+  }, [page, statusFilter, priorityFilter, categoryFilter, searchQuery, cacheKey, setSearchParams]);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   useEffect(() => {
     void load();
@@ -106,7 +127,7 @@ export default function TaskList() {
     if (val) next.set(key, val);
     else next.delete(key);
     next.set("page", "1");
-    setSearchParams(next);
+    setSearchParams(next, { replace: key === "search" });
   };
 
   const goToPage = (nextPage) => {
@@ -121,9 +142,9 @@ export default function TaskList() {
     setPendingStatusIds((prev) => new Set(prev).add(task.id));
     try {
       await updateTaskStatus(task.id, newStatus);
-      // Invalidate any in-flight read and reload so stale responses cannot overwrite state.
+      // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
-      await load();
+      await loadRef.current();
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -141,7 +162,7 @@ export default function TaskList() {
     try {
       await deleteTask(task.id);
       requestGenRef.current += 1;
-      await load();
+      await loadRef.current();
     } catch (e) {
       setError(getErrorMessage(e));
     }

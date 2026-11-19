@@ -3,19 +3,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTaskById, updateTaskStatus } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
+import { formatDueDate } from "../utils/formatDate";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
 
-const fmtDate = (d) =>
-  d
-    ? new Date(d).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        timeZone: "UTC",
-      })
-    : "No due date";
+const fmtDate = (d) => formatDueDate(d);
 
 export default function TaskDetail() {
   const { id } = useParams();

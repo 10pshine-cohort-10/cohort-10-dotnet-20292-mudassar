@@ -16,6 +16,19 @@ const todayStr = () => {
   return `${y}-${m}-${d}`;
 };
 
+const toArray = (value) => (Array.isArray(value) ? value : []);
+
+const extractTaskFields = (taskRes) => ({
+  title: taskRes.title || "",
+  description: taskRes.description || "",
+  status: taskRes.status || "Pending",
+  priority: taskRes.priority || "Medium",
+  dueDate: toDateInput(taskRes.dueDate),
+  categoryId: taskRes.categoryId ? String(taskRes.categoryId) : "",
+  assignedToId: taskRes.assignedToId || "",
+  rowVersion: taskRes.rowVersion || "",
+});
+
 export default function TaskForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -49,18 +62,19 @@ export default function TaskForm() {
         isEdit ? getTaskById(id) : Promise.resolve(null),
       ]);
       if (!isActiveRef.current) return;
-      setCategories(catsRes);
-      setUsers(usersRes);
+      setCategories(toArray(catsRes));
+      setUsers(toArray(usersRes));
 
       if (taskRes) {
-        setTitle(taskRes.title || "");
-        setDescription(taskRes.description || "");
-        setStatus(taskRes.status || "Pending");
-        setPriority(taskRes.priority || "Medium");
-        setDueDate(toDateInput(taskRes.dueDate));
-        setCategoryId(taskRes.categoryId ? String(taskRes.categoryId) : "");
-        setAssignedToId(taskRes.assignedToId || "");
-        setRowVersion(taskRes.rowVersion || "");
+        const fields = extractTaskFields(taskRes);
+        setTitle(fields.title);
+        setDescription(fields.description);
+        setStatus(fields.status);
+        setPriority(fields.priority);
+        setDueDate(fields.dueDate);
+        setCategoryId(fields.categoryId);
+        setAssignedToId(fields.assignedToId);
+        setRowVersion(fields.rowVersion);
       }
     } catch (e) {
       if (isActiveRef.current) {

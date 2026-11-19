@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { getSummary } from "../api/dashboardApi";
 import { getTasks } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
+import { formatDueDate } from "../utils/formatDate";
 import { getPageCache, setPageCache } from "../utils/pageCache";
 import PageHeader from "../components/PageHeader";
 import SummaryCard from "../components/SummaryCard";
@@ -11,15 +12,7 @@ import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
 
 const RANK = { Critical: 4, High: 3, Medium: 2, Low: 1 };
-const fmt = (d) =>
-  d
-    ? new Date(d).toLocaleDateString(undefined, {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        timeZone: "UTC",
-      })
-    : "No due date";
+const fmt = (d) => formatDueDate(d);
 
 const ZERO_SUMMARY = { completed: 0, inProgress: 0, pending: 0, total: 0 };
 
