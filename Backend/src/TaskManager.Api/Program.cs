@@ -1,7 +1,11 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
+using TaskManager.Api.Data;
+using TaskManager.Api.Entities;
 using TaskManager.Api.Extensions;
 using TaskManager.Api.Middleware;
 
@@ -32,6 +36,30 @@ try
         .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
+
+    builder.Services.AddDbContext<AppDbContext>(o =>
+    {
+        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            throw new InvalidOperationException(
+                "ConnectionStrings:DefaultConnection is missing or empty. Set it in .env, user-secrets, or appsettings.");
+        o.UseSqlServer(connectionString);
+    });
+
+    builder.Services.AddIdentityCore<ApplicationUser>(o =>
+        {
+            o.Password.RequiredLength = 8;
+            o.Password.RequireDigit = true;
+            o.Password.RequireUppercase = true;
+            o.Password.RequireLowercase = true;
+            o.Password.RequireNonAlphanumeric = true;
+            o.User.RequireUniqueEmail = true;
+            o.Lockout.AllowedForNewUsers = true;
+            o.Lockout.MaxFailedAccessAttempts = 5;
+            o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+        })
+        .AddRoles<IdentityRole<Guid>>()
+        .AddEntityFrameworkStores<AppDbContext>();
 
     var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
     builder.Services.AddCors(o => o.AddPolicy("Frontend",
@@ -70,6 +98,9 @@ try
         })
        .AllowAnonymous()
        .WithName("Health");
+
+    using (var scope = app.Services.CreateScope())
+        await SeedData.InitializeAsync(scope.ServiceProvider);
 
     await app.RunAsync();
 }
