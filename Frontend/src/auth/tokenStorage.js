@@ -13,6 +13,11 @@ if (channel) {
   channel.onmessage = (event) => {
     const payload = event?.data;
     if (!payload || payload.key !== TOKEN_KEY) return;
+    if (payload.newValue) {
+      memoryFallback.set(TOKEN_KEY, payload.newValue);
+    } else {
+      memoryFallback.delete(TOKEN_KEY);
+    }
     for (const fn of listeners) {
       fn({ key: TOKEN_KEY, newValue: payload.newValue ?? null });
     }
@@ -55,13 +60,23 @@ export const defaultSessionStorage = {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readonly");
       const req = tx.objectStore(STORE_NAME).get(TOKEN_KEY);
+      let value = null;
       req.onsuccess = () => {
-        db.close();
-        resolve(req.result ?? null);
+        value = req.result ?? null;
       };
-      req.onerror = () => {
+      tx.oncomplete = () => {
         db.close();
-        reject(req.error ?? new Error("Failed to read token from IndexedDB."));
+        resolve(value);
+      };
+      tx.onabort = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
+        db.close();
+        reject(err);
+      };
+      tx.onerror = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
+        db.close();
+        reject(err);
       };
     });
   },
@@ -75,13 +90,19 @@ export const defaultSessionStorage = {
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const req = tx.objectStore(STORE_NAME).put(token, TOKEN_KEY);
-      req.onsuccess = () => {
+      tx.oncomplete = () => {
         db.close();
         resolve();
       };
-      req.onerror = () => {
+      tx.onabort = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to store token in IndexedDB.");
         db.close();
-        reject(req.error ?? new Error("Failed to store token in IndexedDB."));
+        reject(err);
+      };
+      tx.onerror = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to store token in IndexedDB.");
+        db.close();
+        reject(err);
       };
     });
     notifyChange(token);
@@ -96,13 +117,19 @@ export const defaultSessionStorage = {
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const req = tx.objectStore(STORE_NAME).delete(TOKEN_KEY);
-      req.onsuccess = () => {
+      tx.oncomplete = () => {
         db.close();
         resolve();
       };
-      req.onerror = () => {
+      tx.onabort = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
         db.close();
-        reject(req.error ?? new Error("Failed to remove token from IndexedDB."));
+        reject(err);
+      };
+      tx.onerror = () => {
+        const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
+        db.close();
+        reject(err);
       };
     });
     notifyChange(null);

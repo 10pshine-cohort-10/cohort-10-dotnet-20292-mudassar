@@ -31,7 +31,8 @@ export default function Dashboard() {
   const [summary, setSummary] = useState(() => cached?.summary ?? null);
   const [recent, setRecent] = useState(() => cached?.recent ?? []);
   const [tasksLoadedOk, setTasksLoadedOk] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => !cached);
+  const [summaryPending, setSummaryPending] = useState(() => !cached?.summary);
   const [error, setError] = useState("");
 
   const controllerRef = useRef(null);
@@ -43,6 +44,7 @@ export default function Dashboard() {
     const { signal } = controller;
 
     setLoading(true);
+    setSummaryPending(true);
     setError("");
 
     const [summaryRes, tasksRes] = await Promise.allSettled([
@@ -64,6 +66,7 @@ export default function Dashboard() {
     } else {
       setSummary((prev) => prev);
     }
+    setSummaryPending(false);
 
     if (summaryRes.status === "fulfilled" && tasksRes.status === "fulfilled") {
       setPageCache(cacheKey, {
@@ -109,10 +112,10 @@ export default function Dashboard() {
       )}
 
       <section className="cards" aria-label="Task status summary">
-        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary?.completed} hint="Finished tasks" loading={loading && summary === null} />
-        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary?.inProgress} hint="Being worked on" loading={loading && summary === null} />
-        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary?.pending} hint="Not started yet" loading={loading && summary === null} />
-        <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={loading && summary === null} />
+        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary?.completed} hint="Finished tasks" loading={summaryPending && summary === null} />
+        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary?.inProgress} hint="Being worked on" loading={summaryPending && summary === null} />
+        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary?.pending} hint="Not started yet" loading={summaryPending && summary === null} />
+        <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={summaryPending && summary === null} />
       </section>
 
       {tasksLoadedOk && recent.length === 0 && (

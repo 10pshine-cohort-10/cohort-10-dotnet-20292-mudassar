@@ -78,28 +78,21 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     void restoreSession();
 
-    const applyCrossTabTokenChange = (newValue) => {
+    const applyCrossTabTokenChange = () => {
       sessionVersionRef.current += 1;
       logoutInFlightRef.current = false;
       clearPageCache();
-      if (!newValue) {
-        setUserState(null);
-        setRestoreError("");
-        setLoading(false);
-        return;
-      }
-      setUserState(null);
       void restoreSession();
     };
 
     const handleStorage = (event) => {
       if (event.storageArea && event.storageArea !== window.localStorage) return;
       if (event.key !== null && event.key !== "token") return;
-      applyCrossTabTokenChange(event.key === null ? null : event.newValue);
+      applyCrossTabTokenChange();
     };
 
-    const unsubscribeChannel = subscribeTokenChanges(({ newValue }) => {
-      applyCrossTabTokenChange(newValue);
+    const unsubscribeChannel = subscribeTokenChanges(() => {
+      applyCrossTabTokenChange();
     });
 
     window.addEventListener("storage", handleStorage);
