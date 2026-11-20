@@ -133,6 +133,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       if (applied === false) {
         superseded = true;
         if (sessionVersionRef.current === loginVersion) {
+          suppressStoredTokenRef.current = false;
           setUserState(null);
           await restoreSession();
         }
