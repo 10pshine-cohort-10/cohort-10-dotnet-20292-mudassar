@@ -31,19 +31,19 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const restoreSession = useCallback(async () => {
     setActiveSessionStorage(storage);
     const version = sessionVersionRef.current;
-    const token = await storage.getToken();
-    if (sessionVersionRef.current !== version) return;
-
-    if (!token) {
-      setRestoreError("");
-      setLoading(false);
-      return;
-    }
-
     setLoading(true);
     setRestoreError("");
 
     try {
+      const token = await storage.getToken();
+      if (sessionVersionRef.current !== version) return;
+
+      if (!token) {
+        setUserState(null);
+        setRestoreError("");
+        return;
+      }
+
       const me = await getMe();
       if (sessionVersionRef.current !== version) return;
       setUserState(me);
@@ -51,12 +51,16 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       if (sessionVersionRef.current !== version) return;
       const status = err?.response?.status;
       if (status === 401 || status === 403) {
-        await storage.removeToken();
+        try {
+          await storage.removeToken();
+        } catch {
+          /* ignore remove failure on invalid auth */
+        }
         if (sessionVersionRef.current !== version) return;
         setUserState(null);
         setRestoreError("");
       } else {
-        // Keep the token on transient network/5xx errors so the user can retry.
+        // Keep the token on storage/network/5xx errors so the user can retry.
         setRestoreError(getErrorMessage(err));
       }
     } finally {

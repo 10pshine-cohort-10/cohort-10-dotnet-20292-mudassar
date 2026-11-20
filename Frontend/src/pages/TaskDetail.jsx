@@ -18,31 +18,38 @@ export default function TaskDetail() {
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
 
-  const requestGenRef = useRef(0);
+  const routeGenRef = useRef(0);
+  const statusGenRef = useRef(0);
   const activeIdRef = useRef(id);
   activeIdRef.current = id;
 
-  const isCurrentRequest = (gen, targetId) =>
-    requestGenRef.current === gen && activeIdRef.current === targetId;
+  const isCurrentRouteGen = (routeGen, targetId) =>
+    routeGenRef.current === routeGen && activeIdRef.current === targetId;
+
+  const isCurrentStatusGen = (routeGen, statusGen, targetId) =>
+    isCurrentRouteGen(routeGen, targetId) && statusGenRef.current === statusGen;
 
   const load = useCallback(async () => {
-    const gen = ++requestGenRef.current;
+    const routeGen = ++routeGenRef.current;
+    statusGenRef.current += 1;
     const targetId = id;
     setTask(null);
     setUpdatingStatus(false);
+    setDeleting(false);
     setLoading(true);
     setError("");
     try {
       const res = await getTaskById(targetId);
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentRouteGen(routeGen, targetId)) return;
       setTask(res);
     } catch (e) {
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentRouteGen(routeGen, targetId)) return;
       setError(getErrorMessage(e));
     } finally {
-      if (isCurrentRequest(gen, targetId)) {
+      if (isCurrentRouteGen(routeGen, targetId)) {
         setLoading(false);
       }
     }
@@ -51,42 +58,49 @@ export default function TaskDetail() {
   useEffect(() => {
     void load();
     return () => {
-      requestGenRef.current += 1;
+      routeGenRef.current += 1;
+      statusGenRef.current += 1;
     };
   }, [load]);
 
   const handleStatusChange = async (newStatus) => {
-    if (!task || updatingStatus) return;
+    if (!task || updatingStatus || deleting) return;
     const targetId = id;
-    const gen = ++requestGenRef.current;
+    const routeGen = routeGenRef.current;
+    const statusGen = ++statusGenRef.current;
     setUpdatingStatus(true);
     setError("");
     try {
       const updated = await updateTaskStatus(targetId, newStatus);
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentStatusGen(routeGen, statusGen, targetId)) return;
       setTask(updated);
     } catch (e) {
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentStatusGen(routeGen, statusGen, targetId)) return;
       setError(getErrorMessage(e));
     } finally {
-      if (isCurrentRequest(gen, targetId)) {
+      if (isCurrentStatusGen(routeGen, statusGen, targetId)) {
         setUpdatingStatus(false);
       }
     }
   };
 
   const handleDelete = async () => {
-    if (!task || !window.confirm(`Delete task "${task.title}"?`)) return;
+    if (!task || deleting || !window.confirm(`Delete task "${task.title}"?`)) return;
     const targetId = id;
-    const gen = ++requestGenRef.current;
+    const routeGen = routeGenRef.current;
+    setDeleting(true);
     setError("");
     try {
       await deleteTask(targetId);
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentRouteGen(routeGen, targetId)) return;
       navigate("/tasks", { replace: true });
     } catch (e) {
-      if (!isCurrentRequest(gen, targetId)) return;
+      if (!isCurrentRouteGen(routeGen, targetId)) return;
       setError(getErrorMessage(e));
+    } finally {
+      if (isCurrentRouteGen(routeGen, targetId)) {
+        setDeleting(false);
+      }
     }
   };
 
@@ -120,7 +134,7 @@ export default function TaskDetail() {
         <div className="row-actions">
           <Link to={`/tasks/${task.id}/edit`} className="btn-primary">Edit Task</Link>
           {canDelete && (
-            <button type="button" className="btn-ghost btn-danger" onClick={handleDelete}>
+            <button type="button" className="btn-ghost btn-danger" onClick={handleDelete} disabled={deleting}>
               Delete Task
             </button>
           )}
@@ -139,7 +153,7 @@ export default function TaskDetail() {
               id="detail-status"
               className="filter-select"
               value={task.status}
-              disabled={updatingStatus}
+              disabled={updatingStatus || deleting}
               onChange={(e) => handleStatusChange(e.target.value)}
             >
               <option value="Pending">Pending</option>
