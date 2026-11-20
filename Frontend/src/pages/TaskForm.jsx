@@ -18,13 +18,13 @@ const todayStr = () => {
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
 
-const settleLookup = (promise, attempted = true) =>
-  attempted
-    ? promise.then(
-        (value) => ({ attempted: true, ok: true, value }),
-        (reason) => ({ attempted: true, ok: false, reason })
-      )
-    : Promise.resolve({ attempted: false, ok: true, value: null });
+const SKIPPED_LOOKUP = { attempted: false, ok: true, value: null };
+
+const settleLookup = (promise) =>
+  promise.then(
+    (value) => ({ attempted: true, ok: true, value }),
+    (reason) => ({ attempted: true, ok: false, reason })
+  );
 
 const getFirstLookupError = (catsOutcome, usersOutcome) => {
   if (!catsOutcome.ok) return getErrorMessage(catsOutcome.reason);
@@ -81,8 +81,8 @@ export default function TaskForm() {
     setLookupError("");
 
     const [catsOutcome, usersOutcome] = await Promise.all([
-      settleLookup(getCategories(), needCategories || retryBoth),
-      settleLookup(getUserLookup(), needUsers || retryBoth),
+      needCategories || retryBoth ? settleLookup(getCategories()) : Promise.resolve(SKIPPED_LOOKUP),
+      needUsers || retryBoth ? settleLookup(getUserLookup()) : Promise.resolve(SKIPPED_LOOKUP),
     ]);
 
     if (lookupGenRef.current !== gen) return;

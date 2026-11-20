@@ -43,17 +43,81 @@ function compareWriteMeta(incoming, current) {
   return 0;
 }
 
-function recordLocalWrite(newValue) {
+function toStoredRecord(meta) {
+  return {
+    token: meta.value ?? null,
+    value: meta.value ?? null,
+    timestamp: meta.timestamp,
+    revision: meta.revision,
+    originId: meta.originId ?? "",
+  };
+}
+
+function extractStoredRecord(raw) {
+  if (raw === null || raw === undefined) {
+    return { token: null, meta: null };
+  }
+  if (typeof raw === "string") {
+    return {
+      token: raw,
+      meta: { timestamp: 0, revision: 0, originId: "", value: raw },
+    };
+  }
+  if (typeof raw === "object") {
+    const token = raw.token ?? raw.value ?? null;
+    const hasMeta = typeof raw.timestamp === "number" && typeof raw.revision === "number";
+    return {
+      token,
+      meta: hasMeta
+        ? {
+            timestamp: raw.timestamp,
+            revision: raw.revision,
+            originId: raw.originId ?? "",
+            value: token,
+          }
+        : { timestamp: 0, revision: 0, originId: "", value: token },
+    };
+  }
+  return { token: null, meta: null };
+}
+
+function createNextWriteMeta(newValue, baseMeta = latestWriteMeta) {
   const normalized = newValue ?? null;
-  const nextTimestamp = Math.max(Date.now(), latestWriteMeta.timestamp);
-  const nextRevision = latestWriteMeta.revision + 1;
-  latestWriteMeta = {
-    timestamp: nextTimestamp,
-    revision: nextRevision,
+  const currentPersistedMeta = extractStoredRecord(memoryFallback.get(TOKEN_KEY)).meta;
+  const highestTimestamp = Math.max(
+    Date.now(),
+    latestWriteMeta.timestamp,
+    baseMeta?.timestamp ?? 0,
+    currentPersistedMeta?.timestamp ?? 0
+  );
+  const highestRevision = Math.max(
+    latestWriteMeta.revision,
+    baseMeta?.revision ?? 0,
+    currentPersistedMeta?.revision ?? 0
+  );
+  return {
+    timestamp: highestTimestamp,
+    revision: highestRevision + 1,
     originId: TAB_ID,
     value: normalized,
   };
-  return latestWriteMeta;
+}
+
+function applyWinningMetaInMemory(winningMeta) {
+  const currentStoredMeta = extractStoredRecord(memoryFallback.get(TOKEN_KEY)).meta;
+  const referenceMeta =
+    currentStoredMeta && compareWriteMeta(currentStoredMeta, latestWriteMeta) > 0
+      ? currentStoredMeta
+      : latestWriteMeta;
+
+  if (compareWriteMeta(winningMeta, referenceMeta) < 0) {
+    return false;
+  }
+
+  latestWriteMeta = winningMeta;
+  memoryFallback.set(TOKEN_KEY, toStoredRecord(winningMeta));
+  loggedOutOverride = !winningMeta.value;
+  return true;
 }
 
 const channel =
@@ -75,28 +139,14 @@ if (channel) {
           originId: payload.originId ?? "",
           value: normalizedValue,
         }
-      : {
-          timestamp: Math.max(Date.now(), latestWriteMeta.timestamp),
-          revision: latestWriteMeta.revision + 1,
-          originId: payload.originId ?? "",
-          value: normalizedValue,
-        };
+      : createNextWriteMeta(normalizedValue);
 
-    // Deterministic winner rule: ignore concurrent losing writes so all tabs converge
-    // on the same memoryFallback token, while any causal follow-up write has a higher
-    // timestamp or revision and replaces the local value.
-    if (compareWriteMeta(incomingMeta, latestWriteMeta) < 0) {
+    // Deterministic winner rule: compare incoming metadata against the persisted in-memory
+    // winner and update the token + metadata together only when incoming is not stale.
+    if (!applyWinningMetaInMemory(incomingMeta)) {
       return;
     }
 
-    latestWriteMeta = incomingMeta;
-    if (normalizedValue) {
-      loggedOutOverride = false;
-      memoryFallback.set(TOKEN_KEY, normalizedValue);
-    } else {
-      loggedOutOverride = true;
-      memoryFallback.delete(TOKEN_KEY);
-    }
     for (const fn of listeners) {
       fn({ key: TOKEN_KEY, newValue: normalizedValue });
     }
@@ -138,21 +188,65 @@ function openAuthDb() {
   });
 }
 
+function persistMetaIfNewerInDb(db, incomingMeta, defaultErrorMessage) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(TOKEN_KEY);
+    let applied = false;
+    let winningMeta = incomingMeta;
+    let putReq = null;
+
+    getReq.onsuccess = () => {
+      const { meta: persistedMeta } = extractStoredRecord(getReq.result);
+      if (!persistedMeta || compareWriteMeta(incomingMeta, persistedMeta) >= 0) {
+        applied = true;
+        winningMeta = incomingMeta;
+        putReq = store.put(toStoredRecord(incomingMeta), TOKEN_KEY);
+      } else {
+        applied = false;
+        winningMeta = persistedMeta;
+      }
+    };
+
+    tx.oncomplete = () => {
+      db.close();
+      applyWinningMetaInMemory(winningMeta);
+      resolve({ applied, winningMeta });
+    };
+    tx.onabort = () => {
+      const err = tx.error ?? putReq?.error ?? getReq.error ?? new Error(defaultErrorMessage);
+      db.close();
+      reject(err);
+    };
+    tx.onerror = () => {
+      const err = tx.error ?? putReq?.error ?? getReq.error ?? new Error(defaultErrorMessage);
+      db.close();
+      reject(err);
+    };
+  });
+}
+
 export const defaultSessionStorage = {
   async getToken() {
     if (loggedOutOverride) return null;
     const db = await openAuthDb();
-    if (!db) return memoryFallback.get(TOKEN_KEY) ?? null;
+    if (!db) {
+      return extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token;
+    }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readonly");
       const req = tx.objectStore(STORE_NAME).get(TOKEN_KEY);
-      let value = null;
+      let record = { token: null, meta: null };
       req.onsuccess = () => {
-        value = req.result ?? null;
+        record = extractStoredRecord(req.result);
       };
       tx.oncomplete = () => {
         db.close();
-        resolve(loggedOutOverride ? null : value);
+        if (record.meta) {
+          applyWinningMetaInMemory(record.meta);
+        }
+        resolve(loggedOutOverride ? null : record.token);
       };
       tx.onabort = () => {
         const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
@@ -167,99 +261,80 @@ export const defaultSessionStorage = {
     });
   },
   async setToken(token) {
-    loggedOutOverride = false;
-    memoryFallback.set(TOKEN_KEY, token);
-    const meta = recordLocalWrite(token);
+    const incomingMeta = createNextWriteMeta(token);
+    applyWinningMetaInMemory(incomingMeta);
     const db = await openAuthDb();
     if (!db) {
-      notifyChange(meta);
+      notifyChange(incomingMeta);
       return;
     }
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const req = tx.objectStore(STORE_NAME).put(token, TOKEN_KEY);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onabort = () => {
-        const err = tx.error ?? req.error ?? new Error("Failed to store token in IndexedDB.");
-        db.close();
-        reject(err);
-      };
-      tx.onerror = () => {
-        const err = tx.error ?? req.error ?? new Error("Failed to store token in IndexedDB.");
-        db.close();
-        reject(err);
-      };
-    });
-    notifyChange(meta);
+    const { applied, winningMeta } = await persistMetaIfNewerInDb(
+      db,
+      incomingMeta,
+      "Failed to store token in IndexedDB."
+    );
+    if (applied) {
+      notifyChange(winningMeta);
+    }
   },
   async removeToken() {
-    loggedOutOverride = true;
-    memoryFallback.delete(TOKEN_KEY);
-    const meta = recordLocalWrite(null);
+    const incomingMeta = createNextWriteMeta(null);
+    applyWinningMetaInMemory(incomingMeta);
     const db = await openAuthDb();
     if (!db) {
-      notifyChange(meta);
+      notifyChange(incomingMeta);
       return;
     }
+    let shouldNotify = true;
     try {
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        const req = tx.objectStore(STORE_NAME).delete(TOKEN_KEY);
-        tx.oncomplete = () => {
-          db.close();
-          resolve();
-        };
-        tx.onabort = () => {
-          const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
-          db.close();
-          reject(err);
-        };
-        tx.onerror = () => {
-          const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
-          db.close();
-          reject(err);
-        };
-      });
+      const { applied } = await persistMetaIfNewerInDb(
+        db,
+        incomingMeta,
+        "Failed to remove token from IndexedDB."
+      );
+      shouldNotify = applied;
     } finally {
-      notifyChange(meta);
+      if (shouldNotify) {
+        notifyChange(incomingMeta);
+      }
     }
   },
   async removeTokenIfMatch(expectedToken) {
     if (!expectedToken) return false;
     const db = await openAuthDb();
     if (!db) {
-      if ( !loggedOutOverride && memoryFallback.get(TOKEN_KEY) === expectedToken) {
-        loggedOutOverride = true;
-        memoryFallback.delete(TOKEN_KEY);
-        const meta = recordLocalWrite(null);
-        notifyChange(meta);
+      const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
+      if (!loggedOutOverride && current.token === expectedToken) {
+        const nextMeta = createNextWriteMeta(null, current.meta);
+        applyWinningMetaInMemory(nextMeta);
+        notifyChange(nextMeta);
         return true;
       }
       return false;
     }
-    const removed = await new Promise((resolve, reject) => {
+    const { removed, winningMeta } = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       const store = tx.objectStore(STORE_NAME);
       const getReq = store.get(TOKEN_KEY);
       let matched = false;
-      let deleteReq = null;
+      let nextMeta = null;
+      let putReq = null;
       getReq.onsuccess = () => {
-        if (!loggedOutOverride && getReq.result === expectedToken) {
+        const current = extractStoredRecord(getReq.result);
+        if (!loggedOutOverride && current.token === expectedToken) {
           matched = true;
-          deleteReq = store.delete(TOKEN_KEY);
+          nextMeta = createNextWriteMeta(null, current.meta);
+          putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
         }
       };
       tx.oncomplete = () => {
         db.close();
-        resolve(matched);
+        resolve({ removed: matched, winningMeta: nextMeta });
       };
       tx.onabort = () => {
         const err =
           tx.error ??
-          deleteReq?.error ??
+          putReq?.error ??
           getReq.error ??
           new Error("Failed to conditionally remove token from IndexedDB.");
         db.close();
@@ -268,18 +343,16 @@ export const defaultSessionStorage = {
       tx.onerror = () => {
         const err =
           tx.error ??
-          deleteReq?.error ??
+          putReq?.error ??
           getReq.error ??
           new Error("Failed to conditionally remove token from IndexedDB.");
         db.close();
         reject(err);
       };
     });
-    if (removed) {
-      loggedOutOverride = true;
-      memoryFallback.delete(TOKEN_KEY);
-      const meta = recordLocalWrite(null);
-      notifyChange(meta);
+    if (removed && winningMeta) {
+      applyWinningMetaInMemory(winningMeta);
+      notifyChange(winningMeta);
     }
     return removed;
   },
