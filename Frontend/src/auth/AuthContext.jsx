@@ -2,7 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getMe, loginRequest, logoutRequest } from "../api/authApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { clearPageCache } from "../utils/pageCache";
-import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
+import {
+  defaultSessionStorage,
+  setActiveSessionStorage,
+  subscribeTokenChanges,
+} from "./tokenStorage";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -74,12 +78,11 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     void restoreSession();
 
-    const handleStorage = (event) => {
-      if (event.key !== "token") return;
+    const applyCrossTabTokenChange = (newValue) => {
       sessionVersionRef.current += 1;
       logoutInFlightRef.current = false;
       clearPageCache();
-      if (!event.newValue) {
+      if (!newValue) {
         setUserState(null);
         setRestoreError("");
         setLoading(false);
@@ -89,8 +92,21 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       void restoreSession();
     };
 
+    const handleStorage = (event) => {
+      if (event.storageArea && event.storageArea !== window.localStorage) return;
+      if (event.key !== null && event.key !== "token") return;
+      applyCrossTabTokenChange(event.key === null ? null : event.newValue);
+    };
+
+    const unsubscribeChannel = subscribeTokenChanges(({ newValue }) => {
+      applyCrossTabTokenChange(newValue);
+    });
+
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    return () => {
+      unsubscribeChannel();
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [restoreSession, storage]);
 
   const login = useCallback(async (email, password) => {
@@ -120,9 +136,13 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       if (sessionVersionRef.current === startingVersion) {
         sessionVersionRef.current += 1;
         clearPageCache();
-        await storage.removeToken();
         setRestoreError("");
         setUserState(null);
+        try {
+          await storage.removeToken();
+        } catch {
+          /* best-effort removal so logout always completes */
+        }
       }
     }
   }, [storage]);

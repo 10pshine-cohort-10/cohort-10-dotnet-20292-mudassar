@@ -14,7 +14,7 @@ Log.Logger = new LoggerConfiguration()
         a => a.Console(formatProvider: CultureInfo.InvariantCulture),
         bufferSize: 10000,
         blockWhenFull: false)
-    .CreateLogger();
+    .CreateBootstrapLogger();
 
 try
 {

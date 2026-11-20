@@ -18,13 +18,35 @@ public static class EnvFileLoader
 
     public static async Task LoadAsync(CancellationToken cancellationToken = default)
     {
-        var envPath = await Task.Run(
-            () => FindEnvFile(Directory.GetCurrentDirectory()) ?? FindEnvFile(AppContext.BaseDirectory),
-            cancellationToken);
-        if (envPath is null)
+        var lines = await ReadFirstEnvFileAsync(Directory.GetCurrentDirectory(), cancellationToken)
+                    ?? await ReadFirstEnvFileAsync(AppContext.BaseDirectory, cancellationToken);
+        if (lines is null)
             return;
 
-        ApplyLines(await File.ReadAllLinesAsync(envPath, cancellationToken));
+        ApplyLines(lines);
+    }
+
+    private static async Task<string[]?> ReadFirstEnvFileAsync(
+        string startDirectory,
+        CancellationToken cancellationToken)
+    {
+        for (var dir = new DirectoryInfo(startDirectory); dir is not null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, ".env");
+            try
+            {
+                return await File.ReadAllLinesAsync(candidate, cancellationToken);
+            }
+            catch (FileNotFoundException)
+            {
+                // Continue searching parent directories.
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Continue searching parent directories.
+            }
+        }
+        return null;
     }
 
     private static void ApplyLines(string[] lines)

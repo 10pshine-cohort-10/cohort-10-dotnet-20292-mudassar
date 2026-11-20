@@ -30,7 +30,7 @@ export default function Dashboard() {
 
   const [summary, setSummary] = useState(() => cached?.summary ?? null);
   const [recent, setRecent] = useState(() => cached?.recent ?? []);
-  const [tasksLoadedOk, setTasksLoadedOk] = useState(() => Boolean(cached));
+  const [tasksLoadedOk, setTasksLoadedOk] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -56,6 +56,7 @@ export default function Dashboard() {
       setTasksLoadedOk(true);
     } else {
       setRecent((prev) => prev);
+      setTasksLoadedOk(false);
     }
 
     if (summaryRes.status === "fulfilled") {
@@ -108,10 +109,10 @@ export default function Dashboard() {
       )}
 
       <section className="cards" aria-label="Task status summary">
-        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary?.completed} hint="Finished tasks" loading={false} />
-        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary?.inProgress} hint="Being worked on" loading={false} />
-        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary?.pending} hint="Not started yet" loading={false} />
-        <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={false} />
+        <SummaryCard tone="done" label="Completed" to="/tasks?status=Completed" value={summary?.completed} hint="Finished tasks" loading={loading && summary === null} />
+        <SummaryCard tone="doing" label="In Progress" to="/tasks?status=InProgress" value={summary?.inProgress} hint="Being worked on" loading={loading && summary === null} />
+        <SummaryCard tone="pending" label="Pending" to="/tasks?status=Pending" value={summary?.pending} hint="Not started yet" loading={loading && summary === null} />
+        <SummaryCard tone="total" label="Total" to="/tasks" value={summary?.total} hint="All tasks" loading={loading && summary === null} />
       </section>
 
       {tasksLoadedOk && recent.length === 0 && (

@@ -5,7 +5,7 @@ import { deleteTask, getTasks, updateTaskStatus } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
-import { getPageCache, setPageCache } from "../utils/pageCache";
+import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pageCache";
 import PageHeader from "../components/PageHeader";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
@@ -58,7 +58,8 @@ export default function TaskList() {
   const { statusFilter, priorityFilter, categoryFilter, searchQuery, page } =
     parseTaskFilters(searchParams);
 
-  const cacheKey = `tasks:${user?.id ?? "anon"}:${page}:${statusFilter}:${priorityFilter}:${categoryFilter}:${searchQuery}`;
+  const userCachePrefix = `tasks:${user?.id ?? "anon"}:`;
+  const cacheKey = `${userCachePrefix}${page}:${statusFilter}:${priorityFilter}:${categoryFilter}:${searchQuery}`;
   const cached = getPageCache(cacheKey);
 
   const [data, setData] = useState(() => cached?.data ?? EMPTY_DATA);
@@ -155,7 +156,12 @@ export default function TaskList() {
     setError("");
     setPendingStatusIds((prev) => new Set(prev).add(task.id));
     try {
-      await updateTaskStatus(task.id, newStatus);
+      const updated = await updateTaskStatus(task.id, newStatus);
+      setData((prev) => ({
+        ...prev,
+        items: (prev.items ?? []).map((item) => (item.id === task.id ? updated : item)),
+      }));
+      deletePageCacheByPrefix(userCachePrefix);
       // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
       await loadRef.current();
@@ -175,6 +181,12 @@ export default function TaskList() {
     setError("");
     try {
       await deleteTask(task.id);
+      setData((prev) => ({
+        ...prev,
+        items: (prev.items ?? []).filter((item) => item.id !== task.id),
+        totalCount: Math.max(0, (prev.totalCount || 0) - 1),
+      }));
+      deletePageCacheByPrefix(userCachePrefix);
       requestGenRef.current += 1;
       await loadRef.current();
     } catch (e) {
