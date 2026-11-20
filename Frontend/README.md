@@ -81,21 +81,33 @@ Admins additionally see an assignee dropdown (`GET /users`) with all users and a
 ```js
 // src/api/axiosClient.js
 import axios from "axios";
+import { getActiveSessionStorage } from "../auth/tokenStorage";
 
-const client = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL });
+const client = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
+  timeout: 15000,
+});
+const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
 
-client.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
+client.interceptors.request.use(async (config) => {
+  const token = await getActiveSessionStorage().getToken();
+  config._requestToken = token;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
 client.interceptors.response.use(
   (res) => res,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
+  async (error) => {
+    const url = error.config?.url ?? "";
+    const isPublic = PUBLIC_PATHS.some((p) => url.includes(p));
+    const requestToken = error.config?._requestToken;
+    const storage = getActiveSessionStorage();
+    if (error.response?.status === 401 && !isPublic && requestToken) {
+      const removed = await storage.removeTokenIfMatch(requestToken);
+      if (removed) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   }
@@ -123,34 +135,60 @@ export function getErrorMessage(error) {
 // src/auth/AuthContext.jsx
 import { createContext, useContext, useEffect, useState } from "react";
 import client from "../api/axiosClient";
+import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!localStorage.getItem("token")) return setLoading(false);
-    client.get("/auth/me").then((r) => setUser(r.data)).catch(() => localStorage.removeItem("token"))
-      .finally(() => setLoading(false));
-  }, []);
+    setActiveSessionStorage(storage);
+    let active = true;
+    (async () => {
+      try {
+        const token = await storage.getToken();
+        if (!token) return;
+        const { data } = await client.get("/auth/me");
+        if (active) setUser(data);
+      } catch {
+        await storage.removeToken().catch(() => {});
+        if (active) setUser(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [storage]);
 
   const login = async (email, password) => {
+    setActiveSessionStorage(storage);
     const { data } = await client.post("/auth/login", { email, password });
-    localStorage.setItem("token", data.token);
+    await storage.setToken(data.token);
     setUser(data.user);
   };
 
   const logout = async () => {
-    try { await client.post("/auth/logout"); } finally {
-      localStorage.removeItem("token");
+    setActiveSessionStorage(storage);
+    try {
+      await client.post("/auth/logout");
+    } finally {
+      await storage.removeToken();
       setUser(null);
     }
   };
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, isAdmin: user?.roles?.includes("Admin") }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{ user, loading, login, logout, isAdmin: !!user?.roles?.includes("Admin") }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 ```
 
@@ -242,14 +280,17 @@ Keep filters in the URL (`useSearchParams`) so lists are shareable/bookmarkable,
 
 ## Token Storage Note
 
-The sample uses `localStorage` for simplicity. For stricter security, use short-lived tokens with an httpOnly cookie + refresh-token flow, and always sanitise any rendered user content (React escapes by default; avoid `dangerouslySetInnerHTML`).
+The application persists session tokens through the asynchronous IndexedDB-backed store in `src/auth/tokenStorage.js` (`defaultSessionStorage`), with `BroadcastChannel` cross-tab synchronization and an in-memory fallback when IndexedDB is unavailable. `AuthProvider` and `axiosClient` share the active store via `setActiveSessionStorage` / `getActiveSessionStorage`. For high-security deployments, pair short-lived access tokens with an `httpOnly` cookie refresh-token flow, and always sanitize rendered user content (React escapes by default; avoid `dangerouslySetInnerHTML`).
 
 ## Optional: Real-time (SignalR)
 
 ```js
 import * as signalR from "@microsoft/signalr";
+import { getActiveSessionStorage } from "./auth/tokenStorage";
 const conn = new signalR.HubConnectionBuilder()
-  .withUrl("https://localhost:5001/hubs/tasks", { accessTokenFactory: () => localStorage.getItem("token") })
+  .withUrl("https://localhost:5001/hubs/tasks", {
+    accessTokenFactory: () => getActiveSessionStorage().getToken(),
+  })
   .withAutomaticReconnect().build();
 conn.on("TaskUpdated", () => refetch());
 conn.start();

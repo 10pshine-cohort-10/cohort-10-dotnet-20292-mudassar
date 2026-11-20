@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -494,7 +494,7 @@ namespace TaskManager.Api.Data.Migrations
                     b.HasOne("TaskManager.Api.Entities.Category", "Category")
                         .WithMany("Tasks")
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("TaskManager.Api.Entities.ApplicationUser", "CreatedBy")
                         .WithMany("CreatedTasks")

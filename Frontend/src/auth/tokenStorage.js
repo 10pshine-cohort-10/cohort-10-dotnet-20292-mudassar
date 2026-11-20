@@ -3,8 +3,58 @@ const DB_NAME = "taskflow_auth_db";
 const STORE_NAME = "session";
 const CHANNEL_NAME = "taskflow_auth_channel";
 
+const TAB_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const memoryFallback = new Map();
 const listeners = new Set();
+
+// Tracks whether a logout removal has occurred in this tab so subsequent reads
+// never restore a stale token even if an underlying storage delete fails.
+let loggedOutOverride = false;
+
+// Monotonic write metadata for deterministic cross-tab convergence in memoryFallback.
+let latestWriteMeta = {
+  timestamp: 0,
+  revision: 0,
+  originId: "",
+  value: null,
+};
+
+function compareWriteMeta(incoming, current) {
+  if (incoming.timestamp !== current.timestamp) {
+    return incoming.timestamp > current.timestamp ? 1 : -1;
+  }
+  if (incoming.revision !== current.revision) {
+    return incoming.revision > current.revision ? 1 : -1;
+  }
+  const incomingValue = String(incoming.value ?? "");
+  const currentValue = String(current.value ?? "");
+  if (incomingValue !== currentValue) {
+    return incomingValue > currentValue ? 1 : -1;
+  }
+  const incomingOrigin = String(incoming.originId ?? "");
+  const currentOrigin = String(current.originId ?? "");
+  if (incomingOrigin !== currentOrigin) {
+    return incomingOrigin > currentOrigin ? 1 : -1;
+  }
+  return 0;
+}
+
+function recordLocalWrite(newValue) {
+  const normalized = newValue ?? null;
+  const nextTimestamp = Math.max(Date.now(), latestWriteMeta.timestamp);
+  const nextRevision = latestWriteMeta.revision + 1;
+  latestWriteMeta = {
+    timestamp: nextTimestamp,
+    revision: nextRevision,
+    originId: TAB_ID,
+    value: normalized,
+  };
+  return latestWriteMeta;
+}
 
 const channel =
   typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CHANNEL_NAME) : null;
@@ -13,20 +63,55 @@ if (channel) {
   channel.onmessage = (event) => {
     const payload = event?.data;
     if (!payload || payload.key !== TOKEN_KEY) return;
-    if (payload.newValue) {
-      memoryFallback.set(TOKEN_KEY, payload.newValue);
+
+    const normalizedValue = payload.newValue ?? null;
+    const hasMeta =
+      typeof payload.timestamp === "number" && typeof payload.revision === "number";
+
+    const incomingMeta = hasMeta
+      ? {
+          timestamp: payload.timestamp,
+          revision: payload.revision,
+          originId: payload.originId ?? "",
+          value: normalizedValue,
+        }
+      : {
+          timestamp: Math.max(Date.now(), latestWriteMeta.timestamp),
+          revision: latestWriteMeta.revision + 1,
+          originId: payload.originId ?? "",
+          value: normalizedValue,
+        };
+
+    // Deterministic winner rule: ignore concurrent losing writes so all tabs converge
+    // on the same memoryFallback token, while any causal follow-up write has a higher
+    // timestamp or revision and replaces the local value.
+    if (compareWriteMeta(incomingMeta, latestWriteMeta) < 0) {
+      return;
+    }
+
+    latestWriteMeta = incomingMeta;
+    if (normalizedValue) {
+      loggedOutOverride = false;
+      memoryFallback.set(TOKEN_KEY, normalizedValue);
     } else {
+      loggedOutOverride = true;
       memoryFallback.delete(TOKEN_KEY);
     }
     for (const fn of listeners) {
-      fn({ key: TOKEN_KEY, newValue: payload.newValue ?? null });
+      fn({ key: TOKEN_KEY, newValue: normalizedValue });
     }
   };
 }
 
-function notifyChange(newValue) {
+function notifyChange(meta) {
   if (channel) {
-    channel.postMessage({ key: TOKEN_KEY, newValue: newValue ?? null });
+    channel.postMessage({
+      key: TOKEN_KEY,
+      newValue: meta.value,
+      timestamp: meta.timestamp,
+      revision: meta.revision,
+      originId: meta.originId,
+    });
   }
 }
 
@@ -55,6 +140,7 @@ function openAuthDb() {
 
 export const defaultSessionStorage = {
   async getToken() {
+    if (loggedOutOverride) return null;
     const db = await openAuthDb();
     if (!db) return memoryFallback.get(TOKEN_KEY) ?? null;
     return new Promise((resolve, reject) => {
@@ -66,7 +152,7 @@ export const defaultSessionStorage = {
       };
       tx.oncomplete = () => {
         db.close();
-        resolve(value);
+        resolve(loggedOutOverride ? null : value);
       };
       tx.onabort = () => {
         const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
@@ -81,10 +167,12 @@ export const defaultSessionStorage = {
     });
   },
   async setToken(token) {
+    loggedOutOverride = false;
+    memoryFallback.set(TOKEN_KEY, token);
+    const meta = recordLocalWrite(token);
     const db = await openAuthDb();
     if (!db) {
-      memoryFallback.set(TOKEN_KEY, token);
-      notifyChange(token);
+      notifyChange(meta);
       return;
     }
     await new Promise((resolve, reject) => {
@@ -105,34 +193,95 @@ export const defaultSessionStorage = {
         reject(err);
       };
     });
-    notifyChange(token);
+    notifyChange(meta);
   },
   async removeToken() {
+    loggedOutOverride = true;
+    memoryFallback.delete(TOKEN_KEY);
+    const meta = recordLocalWrite(null);
     const db = await openAuthDb();
     if (!db) {
-      memoryFallback.delete(TOKEN_KEY);
-      notifyChange(null);
+      notifyChange(meta);
       return;
     }
-    await new Promise((resolve, reject) => {
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        const req = tx.objectStore(STORE_NAME).delete(TOKEN_KEY);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onabort = () => {
+          const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
+          db.close();
+          reject(err);
+        };
+        tx.onerror = () => {
+          const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
+          db.close();
+          reject(err);
+        };
+      });
+    } finally {
+      notifyChange(meta);
+    }
+  },
+  async removeTokenIfMatch(expectedToken) {
+    if (!expectedToken) return false;
+    const db = await openAuthDb();
+    if (!db) {
+      if ( !loggedOutOverride && memoryFallback.get(TOKEN_KEY) === expectedToken) {
+        loggedOutOverride = true;
+        memoryFallback.delete(TOKEN_KEY);
+        const meta = recordLocalWrite(null);
+        notifyChange(meta);
+        return true;
+      }
+      return false;
+    }
+    const removed = await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
-      const req = tx.objectStore(STORE_NAME).delete(TOKEN_KEY);
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(TOKEN_KEY);
+      let matched = false;
+      let deleteReq = null;
+      getReq.onsuccess = () => {
+        if (!loggedOutOverride && getReq.result === expectedToken) {
+          matched = true;
+          deleteReq = store.delete(TOKEN_KEY);
+        }
+      };
       tx.oncomplete = () => {
         db.close();
-        resolve();
+        resolve(matched);
       };
       tx.onabort = () => {
-        const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
+        const err =
+          tx.error ??
+          deleteReq?.error ??
+          getReq.error ??
+          new Error("Failed to conditionally remove token from IndexedDB.");
         db.close();
         reject(err);
       };
       tx.onerror = () => {
-        const err = tx.error ?? req.error ?? new Error("Failed to remove token from IndexedDB.");
+        const err =
+          tx.error ??
+          deleteReq?.error ??
+          getReq.error ??
+          new Error("Failed to conditionally remove token from IndexedDB.");
         db.close();
         reject(err);
       };
     });
-    notifyChange(null);
+    if (removed) {
+      loggedOutOverride = true;
+      memoryFallback.delete(TOKEN_KEY);
+      const meta = recordLocalWrite(null);
+      notifyChange(meta);
+    }
+    return removed;
   },
 };
 

@@ -17,6 +17,7 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
         var config = new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: true)
+            .AddUserSecrets<DesignTimeDbContextFactory>(optional: true)
             .AddEnvironmentVariables()
             .Build();
 

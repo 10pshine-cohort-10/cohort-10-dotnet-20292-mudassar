@@ -41,7 +41,7 @@ erDiagram
         int Status "0=Pending, 1=InProgress, 2=Completed"
         int Priority "0=Low, 1=Medium, 2=High, 3=Critical"
         datetime2 DueDate "Nullable, Indexed"
-        int CategoryId FK "Nullable, Indexed, OnDelete SetNull"
+        int CategoryId FK "Nullable, Indexed, OnDelete Restrict"
         uniqueidentifier CreatedById FK "Required, OnDelete Restrict"
         uniqueidentifier AssignedToId FK "Nullable, Indexed with Status, OnDelete Restrict"
         datetime2 CreatedAt "UTC"
@@ -74,7 +74,7 @@ erDiagram
 
     AspNetUsers ||--o{ Tasks : "creates (CreatedById - Restrict)"
     AspNetUsers |o--o{ Tasks : "is assigned (AssignedToId - Restrict)"
-    Categories |o--o{ Tasks : "categorizes (CategoryId - SetNull)"
+    Categories |o--o{ Tasks : "categorizes (CategoryId - Restrict)"
 
     Tasks ||--o{ TaskComments : "has comments (Cascade)"
     AspNetUsers ||--o{ TaskComments : "writes (UserId - Restrict)"
@@ -83,9 +83,10 @@ erDiagram
     AspNetUsers ||--o{ TaskHistories : "performs action (UserId - Restrict)"
 ```
 
-## Soft-Delete Guarantee (Never Physically Deleted)
+## Soft-Delete Guarantee (Tracked AppDbContext Deletions)
 
+- **Scope & Limitations:** This guarantee applies to tracked entity deletions saved through `AppDbContext.SaveChanges` and `AppDbContext.SaveChangesAsync`. Set-based bulk operations (such as `ExecuteDelete` / `ExecuteDeleteAsync`) and direct SQL operations (such as `ExecuteSqlRaw` / `ExecuteSqlInterpolated`) bypass the EF Core change tracker and are explicitly excluded from this guarantee.
 - **Global Query Filter (`HasQueryFilter(t => !t.IsDeleted)`):** All normal queries on `Tasks`, `TaskComments`, and `TaskHistories` automatically filter out soft-deleted tasks.
 - **`SaveChanges` / `SaveChangesAsync` Interceptor (`ConvertTaskDeletesToSoftDelete`):**
-  - Even if code calls `db.Tasks.Remove(task)`, `AppDbContext` intercepts `EntityState.Deleted`, converts the entry to `EntityState.Unchanged`, and marks only `IsDeleted = true`, `DeletedAt = DateTime.UtcNow`, and `UpdatedAt = DateTime.UtcNow` as modified.
-  - Deferred cascade delete timing (`CascadeTiming.OnSaveChanges`) and `RevertDeletedDependents` guarantee that loaded `TaskComments` and `TaskHistories` are never physically deleted when a task is soft-deleted.
+  - Even if code calls `db.Tasks.Remove(task)` on a tracked entity, `AppDbContext` intercepts `EntityState.Deleted`, restores pending non-deletion property values (including the original `RowVersion` concurrency token) from `OriginalValues`, transitions the entry through `EntityState.Unchanged`, and marks only `IsDeleted = true`, `DeletedAt = DateTime.UtcNow`, and `UpdatedAt = DateTime.UtcNow` as modified.
+  - Deferred cascade/orphan timing (`CascadeTiming.OnSaveChanges`) and `RevertDeletedDependents` resolve pending orphan/cascade transitions and restore tracked `TaskComments` and `TaskHistories` (and their relationships) so they are preserved when a tracked task is soft-deleted through `AppDbContext`.

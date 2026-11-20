@@ -67,6 +67,8 @@ export default function TaskList() {
   const [categories, setCategories] = useState(() => cached?.categories ?? []);
   const [loading, setLoading] = useState(() => !cached);
   const [pendingStatusIds, setPendingStatusIds] = useState(() => new Set());
+  const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set());
+  const pendingDeleteIdsRef = useRef(new Set());
   const [error, setError] = useState("");
 
   const controllerRef = useRef(null);
@@ -177,7 +179,10 @@ export default function TaskList() {
   };
 
   const handleDelete = async (task) => {
+    if (pendingDeleteIdsRef.current.has(task.id) || pendingDeleteIds.has(task.id)) return;
     if (!window.confirm(`Delete task "${task.title}"?`)) return;
+    pendingDeleteIdsRef.current.add(task.id);
+    setPendingDeleteIds((prev) => new Set(prev).add(task.id));
     setError("");
     try {
       await deleteTask(task.id);
@@ -191,6 +196,13 @@ export default function TaskList() {
       await loadRef.current();
     } catch (e) {
       setError(getErrorMessage(e));
+    } finally {
+      pendingDeleteIdsRef.current.delete(task.id);
+      setPendingDeleteIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
     }
   };
 
@@ -320,6 +332,7 @@ export default function TaskList() {
                           <button
                             type="button"
                             className="btn-ghost btn-sm btn-danger"
+                            disabled={pendingDeleteIds.has(t.id)}
                             onClick={() => handleDelete(t)}
                           >
                             Delete
