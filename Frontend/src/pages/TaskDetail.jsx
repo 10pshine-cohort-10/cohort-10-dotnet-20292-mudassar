@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTaskById, updateTaskStatus } from "../api/tasksApi";
@@ -20,44 +20,72 @@ export default function TaskDetail() {
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [error, setError] = useState("");
 
+  const requestGenRef = useRef(0);
+  const activeIdRef = useRef(id);
+  activeIdRef.current = id;
+
+  const isCurrentRequest = (gen, targetId) =>
+    requestGenRef.current === gen && activeIdRef.current === targetId;
+
   const load = useCallback(async () => {
+    const gen = ++requestGenRef.current;
+    const targetId = id;
+    setTask(null);
+    setUpdatingStatus(false);
     setLoading(true);
     setError("");
     try {
-      const res = await getTaskById(id);
+      const res = await getTaskById(targetId);
+      if (!isCurrentRequest(gen, targetId)) return;
       setTask(res);
     } catch (e) {
+      if (!isCurrentRequest(gen, targetId)) return;
       setError(getErrorMessage(e));
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(gen, targetId)) {
+        setLoading(false);
+      }
     }
   }, [id]);
 
   useEffect(() => {
     void load();
+    return () => {
+      requestGenRef.current += 1;
+    };
   }, [load]);
 
   const handleStatusChange = async (newStatus) => {
     if (!task || updatingStatus) return;
+    const targetId = id;
+    const gen = ++requestGenRef.current;
     setUpdatingStatus(true);
     setError("");
     try {
-      const updated = await updateTaskStatus(task.id, newStatus);
+      const updated = await updateTaskStatus(targetId, newStatus);
+      if (!isCurrentRequest(gen, targetId)) return;
       setTask(updated);
     } catch (e) {
+      if (!isCurrentRequest(gen, targetId)) return;
       setError(getErrorMessage(e));
     } finally {
-      setUpdatingStatus(false);
+      if (isCurrentRequest(gen, targetId)) {
+        setUpdatingStatus(false);
+      }
     }
   };
 
   const handleDelete = async () => {
     if (!task || !window.confirm(`Delete task "${task.title}"?`)) return;
+    const targetId = id;
+    const gen = ++requestGenRef.current;
     setError("");
     try {
-      await deleteTask(task.id);
+      await deleteTask(targetId);
+      if (!isCurrentRequest(gen, targetId)) return;
       navigate("/tasks", { replace: true });
     } catch (e) {
+      if (!isCurrentRequest(gen, targetId)) return;
       setError(getErrorMessage(e));
     }
   };

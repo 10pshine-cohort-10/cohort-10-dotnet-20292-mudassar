@@ -15,7 +15,7 @@ function getInitials(name = "") {
 }
 
 export default function Profile() {
-  const { user, setUser, logout } = useAuth();
+  const { user, setUser, getSessionVersion, logout } = useAuth();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState(user);
@@ -29,19 +29,27 @@ export default function Profile() {
   // Operation: Get user info from backend and display
   useEffect(() => {
     const controller = new AbortController();
+    const sessionAtStart = getSessionVersion();
     getMe({ signal: controller.signal })
       .then((freshUser) => {
-        if (hasInteractedRef.current) return;
+        if (hasInteractedRef.current || getSessionVersion() !== sessionAtStart) return;
         setProfile(freshUser);
         setFullName(freshUser.fullName ?? "");
-        setUser?.(freshUser);
+        setUser?.(freshUser, sessionAtStart);
       })
       .catch((err) => {
-        if (controller.signal.aborted || err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
+        if (
+          controller.signal.aborted ||
+          getSessionVersion() !== sessionAtStart ||
+          err?.code === "ERR_CANCELED" ||
+          err?.name === "CanceledError"
+        ) {
+          return;
+        }
         setError(getErrorMessage(err));
       });
     return () => controller.abort();
-  }, [setUser]);
+  }, [setUser, getSessionVersion]);
 
   const handleLogout = async () => {
     await logout();
@@ -57,20 +65,26 @@ export default function Profile() {
       return;
     }
 
+    const sessionAtStart = getSessionVersion();
     setSaving(true);
     setError("");
     setSuccess("");
     try {
       const updated = await updateMe({ fullName: trimmed });
+      if (getSessionVersion() !== sessionAtStart) return;
       setProfile(updated);
       setFullName(updated.fullName);
-      setUser?.(updated);
+      setUser?.(updated, sessionAtStart);
       setEditing(false);
       setSuccess("Profile updated successfully.");
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (getSessionVersion() === sessionAtStart) {
+        setError(getErrorMessage(err));
+      }
     } finally {
-      setSaving(false);
+      if (getSessionVersion() === sessionAtStart) {
+        setSaving(false);
+      }
     }
   };
 

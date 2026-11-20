@@ -48,6 +48,9 @@ function buildTaskQueryParams({ page, statusFilter, priorityFilter, categoryFilt
 }
 
 const isCanceledError = (e) => e?.code === "ERR_CANCELED" || e?.name === "CanceledError";
+const toArray = (value) => (Array.isArray(value) ? value : []);
+const computeTotalPages = (res) =>
+  res.totalPages || Math.ceil((res.totalCount || 0) / PAGE_SIZE);
 
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
@@ -59,8 +62,9 @@ export default function TaskList() {
   const cached = getPageCache(cacheKey);
 
   const [data, setData] = useState(() => cached?.data ?? EMPTY_DATA);
+  const [dataKey, setDataKey] = useState(() => (cached ? cacheKey : null));
   const [categories, setCategories] = useState(() => cached?.categories ?? []);
-  const [hasLoaded, setHasLoaded] = useState(() => Boolean(cached));
+  const [loading, setLoading] = useState(() => !cached);
   const [pendingStatusIds, setPendingStatusIds] = useState(() => new Set());
   const [error, setError] = useState("");
 
@@ -84,6 +88,16 @@ export default function TaskList() {
       searchQuery,
     });
 
+    const cachedEntry = getPageCache(cacheKey);
+    if (cachedEntry) {
+      setData(cachedEntry.data ?? EMPTY_DATA);
+      setDataKey(cacheKey);
+      setCategories(toArray(cachedEntry.categories));
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     setError("");
     try {
       const [tasksRes, catsRes] = await Promise.all([
@@ -92,9 +106,8 @@ export default function TaskList() {
       ]);
       if (signal.aborted || requestGenRef.current !== gen) return;
       const nextData = tasksRes ?? EMPTY_DATA;
-      const nextCats = Array.isArray(catsRes) ? catsRes : [];
-      const computedTotalPages =
-        nextData.totalPages || Math.ceil((nextData.totalCount || 0) / PAGE_SIZE);
+      const nextCats = toArray(catsRes);
+      const computedTotalPages = computeTotalPages(nextData);
       if (computedTotalPages > 0 && page > computedTotalPages) {
         const clamped = new URLSearchParams(searchParamsRef.current);
         clamped.set("page", String(computedTotalPages));
@@ -102,15 +115,16 @@ export default function TaskList() {
         return;
       }
       setData(nextData);
+      setDataKey(cacheKey);
       setCategories(nextCats);
-      setHasLoaded(true);
+      setLoading(false);
       setPageCache(cacheKey, { data: nextData, categories: nextCats });
     } catch (e) {
       if (signal.aborted || requestGenRef.current !== gen || isCanceledError(e)) {
         return;
       }
       setError(getErrorMessage(e));
-      setHasLoaded(true);
+      setLoading(false);
     }
   }, [page, statusFilter, priorityFilter, categoryFilter, searchQuery, cacheKey, setSearchParams]);
 
@@ -168,7 +182,8 @@ export default function TaskList() {
     }
   };
 
-  const items = data.items ?? [];
+  const isCurrentData = dataKey === cacheKey;
+  const items = isCurrentData ? data.items ?? [] : [];
   const totalPages = Math.max(1, data.totalPages || Math.ceil((data.totalCount || 0) / PAGE_SIZE));
   const canDelete = (task) => isAdmin || task.createdById === user?.id;
 
@@ -226,7 +241,15 @@ export default function TaskList() {
         </select>
       </div>
 
-      {hasLoaded && items.length === 0 && (
+      {loading && !isCurrentData && !error && (
+        <div className="form-card" aria-busy="true" aria-label="Loading tasks">
+          <div className="skel" style={{ height: 24, width: "35%", marginBottom: 14 }} />
+          <div className="skel" style={{ height: 42, marginBottom: 10 }} />
+          <div className="skel" style={{ height: 42 }} />
+        </div>
+      )}
+
+      {isCurrentData && items.length === 0 && (
         <div className="empty">
           <h2>No tasks found</h2>
           <p>Try clearing your filters or create a new task to get started.</p>
@@ -234,7 +257,7 @@ export default function TaskList() {
         </div>
       )}
 
-      {items.length > 0 && (
+      {isCurrentData && items.length > 0 && (
         <>
           <div className="tbl-wrap">
             <table>

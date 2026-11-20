@@ -2,39 +2,58 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getMe, loginRequest, logoutRequest } from "../api/authApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { clearPageCache } from "../utils/pageCache";
+import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+export function AuthProvider({ children, storage = defaultSessionStorage }) {
+  const [user, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [restoreError, setRestoreError] = useState("");
 
   const sessionVersionRef = useRef(0);
   const logoutInFlightRef = useRef(false);
 
+  const getSessionVersion = useCallback(() => sessionVersionRef.current, []);
+
+  // Session-scoped profile updater: never restores a user after logout or across a different session.
+  const setUser = useCallback((nextUser, expectedSessionVersion) => {
+    if (expectedSessionVersion !== undefined && sessionVersionRef.current !== expectedSessionVersion) {
+      return;
+    }
+    setUserState((prev) => {
+      if (!prev) return prev;
+      return typeof nextUser === "function" ? nextUser(prev) : nextUser;
+    });
+  }, []);
+
   const restoreSession = useCallback(async () => {
-    if (!localStorage.getItem("token")) {
+    setActiveSessionStorage(storage);
+    const version = sessionVersionRef.current;
+    const token = await storage.getToken();
+    if (sessionVersionRef.current !== version) return;
+
+    if (!token) {
       setRestoreError("");
       setLoading(false);
       return;
     }
 
-    const version = sessionVersionRef.current;
     setLoading(true);
     setRestoreError("");
 
     try {
       const me = await getMe();
       if (sessionVersionRef.current !== version) return;
-      setUser(me);
+      setUserState(me);
     } catch (err) {
       if (sessionVersionRef.current !== version) return;
       const status = err?.response?.status;
       if (status === 401 || status === 403) {
-        localStorage.removeItem("token");
-        setUser(null);
+        await storage.removeToken();
+        if (sessionVersionRef.current !== version) return;
+        setUserState(null);
         setRestoreError("");
       } else {
         // Keep the token on transient network/5xx errors so the user can retry.
@@ -45,9 +64,10 @@ export function AuthProvider({ children }) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [storage]);
 
   useEffect(() => {
+    setActiveSessionStorage(storage);
     void restoreSession();
 
     const handleStorage = (event) => {
@@ -56,31 +76,33 @@ export function AuthProvider({ children }) {
       logoutInFlightRef.current = false;
       clearPageCache();
       if (!event.newValue) {
-        setUser(null);
+        setUserState(null);
         setRestoreError("");
         setLoading(false);
         return;
       }
-      setUser(null);
+      setUserState(null);
       void restoreSession();
     };
 
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [restoreSession]);
+  }, [restoreSession, storage]);
 
   const login = useCallback(async (email, password) => {
+    setActiveSessionStorage(storage);
     clearPageCache();
     const data = await loginRequest(email, password);
     sessionVersionRef.current += 1;
     logoutInFlightRef.current = false;
-    localStorage.setItem("token", data.token);
+    await storage.setToken(data.token);
     setRestoreError("");
-    setUser(data.user);
-  }, []);
+    setUserState(data.user);
+  }, [storage]);
 
   const logout = useCallback(async () => {
     if (logoutInFlightRef.current) return;
+    setActiveSessionStorage(storage);
     logoutInFlightRef.current = true;
     const startingVersion = sessionVersionRef.current;
 
@@ -94,17 +116,18 @@ export function AuthProvider({ children }) {
       if (sessionVersionRef.current === startingVersion) {
         sessionVersionRef.current += 1;
         clearPageCache();
-        localStorage.removeItem("token");
+        await storage.removeToken();
         setRestoreError("");
-        setUser(null);
+        setUserState(null);
       }
     }
-  }, []);
+  }, [storage]);
 
   const value = useMemo(
     () => ({
       user,
       setUser,
+      getSessionVersion,
       loading,
       restoreError,
       retryRestore: restoreSession,
@@ -112,7 +135,7 @@ export function AuthProvider({ children }) {
       logout,
       isAdmin: !!user?.roles?.includes("Admin"),
     }),
-    [user, loading, restoreError, restoreSession, login, logout]
+    [user, setUser, getSessionVersion, loading, restoreError, restoreSession, login, logout]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

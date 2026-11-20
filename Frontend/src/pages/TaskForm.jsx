@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createTask, getTaskById, updateTask } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
@@ -51,7 +51,10 @@ export default function TaskForm() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
 
-  const loadForm = useCallback(async (isActiveRef) => {
+  const requestGenRef = useRef(0);
+
+  const loadForm = useCallback(async () => {
+    const gen = ++requestGenRef.current;
     setLoading(true);
     setLoadFailed(false);
     setError("");
@@ -61,7 +64,7 @@ export default function TaskForm() {
         getUserLookup().catch(() => []),
         isEdit ? getTaskById(id) : Promise.resolve(null),
       ]);
-      if (!isActiveRef.current) return;
+      if (requestGenRef.current !== gen) return;
       setCategories(toArray(catsRes));
       setUsers(toArray(usersRes));
 
@@ -77,20 +80,19 @@ export default function TaskForm() {
         setRowVersion(fields.rowVersion);
       }
     } catch (e) {
-      if (isActiveRef.current) {
+      if (requestGenRef.current === gen) {
         setError(getErrorMessage(e));
         if (isEdit) setLoadFailed(true);
       }
     } finally {
-      if (isActiveRef.current) setLoading(false);
+      if (requestGenRef.current === gen) setLoading(false);
     }
   }, [id, isEdit]);
 
   useEffect(() => {
-    const activeRef = { current: true };
-    void loadForm(activeRef);
+    void loadForm();
     return () => {
-      activeRef.current = false;
+      requestGenRef.current += 1;
     };
   }, [loadForm]);
 
@@ -156,7 +158,7 @@ export default function TaskForm() {
       <>
         <ErrorAlert message={error || "Could not load task for editing."} />
         <div className="row-actions">
-          <button type="button" className="btn-primary" onClick={() => void loadForm({ current: true })}>
+          <button type="button" className="btn-primary" onClick={() => void loadForm()}>
             Retry
           </button>
           <Link to="/tasks" className="btn-ghost">Back to Tasks</Link>
