@@ -107,10 +107,19 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     clearPageCache();
     const data = await loginRequest(email, password);
     sessionVersionRef.current += 1;
+    const loginVersion = sessionVersionRef.current;
     logoutInFlightRef.current = false;
-    await storage.setToken(data.token);
-    setRestoreError("");
-    setUserState(data.user);
+    try {
+      await storage.setToken(data.token);
+      if (sessionVersionRef.current === loginVersion) {
+        setRestoreError("");
+        setUserState(data.user);
+      }
+    } finally {
+      if (sessionVersionRef.current === loginVersion) {
+        setLoading(false);
+      }
+    }
   }, [storage]);
 
   const logout = useCallback(async () => {
