@@ -262,20 +262,25 @@ export const defaultSessionStorage = {
   },
   async setToken(token) {
     const incomingMeta = createNextWriteMeta(token);
-    applyWinningMetaInMemory(incomingMeta);
+    const appliedInMemory = applyWinningMetaInMemory(incomingMeta);
     const db = await openAuthDb();
     if (!db) {
-      notifyChange(incomingMeta);
-      return;
+      if (appliedInMemory) {
+        notifyChange(incomingMeta);
+      }
+      return appliedInMemory;
     }
     const { applied, winningMeta } = await persistMetaIfNewerInDb(
       db,
       incomingMeta,
       "Failed to store token in IndexedDB."
     );
-    if (applied) {
+    const isCurrentWinner =
+      applied && compareWriteMeta(incomingMeta, latestWriteMeta) >= 0;
+    if (isCurrentWinner) {
       notifyChange(winningMeta);
     }
+    return isCurrentWinner;
   },
   async removeToken() {
     const incomingMeta = createNextWriteMeta(null);
@@ -306,9 +311,11 @@ export const defaultSessionStorage = {
       const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
       if (!loggedOutOverride && current.token === expectedToken) {
         const nextMeta = createNextWriteMeta(null, current.meta);
-        applyWinningMetaInMemory(nextMeta);
-        notifyChange(nextMeta);
-        return true;
+        const applied = applyWinningMetaInMemory(nextMeta);
+        if (applied) {
+          notifyChange(nextMeta);
+        }
+        return applied;
       }
       return false;
     }
@@ -321,7 +328,15 @@ export const defaultSessionStorage = {
       let putReq = null;
       getReq.onsuccess = () => {
         const current = extractStoredRecord(getReq.result);
-        if (!loggedOutOverride && current.token === expectedToken) {
+        const hasInMemoryState = memoryFallback.has(TOKEN_KEY) || latestWriteMeta.revision > 0;
+        const inMemoryToken = hasInMemoryState
+          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token
+          : current.token;
+        if (
+          !loggedOutOverride &&
+          current.token === expectedToken &&
+          inMemoryToken === expectedToken
+        ) {
           matched = true;
           nextMeta = createNextWriteMeta(null, current.meta);
           putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
@@ -351,8 +366,11 @@ export const defaultSessionStorage = {
       };
     });
     if (removed && winningMeta) {
-      applyWinningMetaInMemory(winningMeta);
-      notifyChange(winningMeta);
+      const applied = applyWinningMetaInMemory(winningMeta);
+      if (applied) {
+        notifyChange(winningMeta);
+      }
+      return applied;
     }
     return removed;
   },

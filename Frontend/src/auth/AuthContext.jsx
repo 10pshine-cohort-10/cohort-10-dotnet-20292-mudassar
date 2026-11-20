@@ -127,19 +127,28 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     sessionVersionRef.current += 1;
     const loginVersion = sessionVersionRef.current;
     logoutInFlightRef.current = false;
+    let superseded = false;
     try {
-      await storage.setToken(data.token);
+      const applied = await storage.setToken(data.token);
+      if (applied === false) {
+        superseded = true;
+        if (sessionVersionRef.current === loginVersion) {
+          setUserState(null);
+          await restoreSession();
+        }
+        return;
+      }
       if (sessionVersionRef.current === loginVersion) {
         suppressStoredTokenRef.current = false;
         setRestoreError("");
         setUserState(data.user);
       }
     } finally {
-      if (sessionVersionRef.current === loginVersion) {
+      if (!superseded && sessionVersionRef.current === loginVersion) {
         setLoading(false);
       }
     }
-  }, [storage]);
+  }, [restoreSession, storage]);
 
   const logout = useCallback(async () => {
     if (logoutInFlightRef.current) return;
