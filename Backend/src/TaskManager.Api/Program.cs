@@ -1,11 +1,9 @@
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using TaskManager.Api.Data;
-using TaskManager.Api.Entities;
 using TaskManager.Api.Extensions;
 using TaskManager.Api.Middleware;
 
@@ -34,8 +32,7 @@ try
     // ---------- Services ----------
     builder.Services.AddControllers()
         .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
-    builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddSwaggerWithJwt();
 
     builder.Services.AddDbContext<AppDbContext>(o =>
     {
@@ -46,24 +43,11 @@ try
         o.UseSqlServer(connectionString);
     });
 
-    builder.Services.AddIdentityCore<ApplicationUser>(o =>
-        {
-            o.Password.RequiredLength = 8;
-            o.Password.RequireDigit = true;
-            o.Password.RequireUppercase = true;
-            o.Password.RequireLowercase = true;
-            o.Password.RequireNonAlphanumeric = true;
-            o.User.RequireUniqueEmail = true;
-            o.Lockout.AllowedForNewUsers = true;
-            o.Lockout.MaxFailedAccessAttempts = 5;
-            o.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-        })
-        .AddRoles<IdentityRole<Guid>>()
-        .AddEntityFrameworkStores<AppDbContext>();
-
     var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
     builder.Services.AddCors(o => o.AddPolicy("Frontend",
         p => p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod()));
+
+    builder.Services.AddAuth(builder.Configuration);
 
     // ---------- Pipeline ----------
     var app = builder.Build();
@@ -89,7 +73,10 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseMiddleware<UserLogContextMiddleware>();
+    app.UseRateLimiter();
+    app.UseAuthentication();                          // MUST come before UseAuthorization
+    app.UseMiddleware<UserLogContextMiddleware>();    // pushes UserId into Serilog LogContext
+    app.UseAuthorization();
 
     app.MapControllers();
     app.MapGet("/health", (ILogger<Program> logger) =>
