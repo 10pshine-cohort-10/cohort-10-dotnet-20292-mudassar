@@ -143,22 +143,49 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [restoreError, setRestoreError] = useState("");
   const sessionVersionRef = useRef(0);
 
   const restoreSession = async () => {
     setActiveSessionStorage(storage);
     const version = sessionVersionRef.current;
+    setLoading(true);
+    setRestoreError("");
     let token = null;
     try {
       token = await storage.getToken();
-      if (sessionVersionRef.current !== version || !token) return;
+      if (sessionVersionRef.current !== version) return;
+      if (!token) {
+        setUser(null);
+        return;
+      }
       const { data } = await client.get("/auth/me");
       if (sessionVersionRef.current === version) setUser(data);
-    } catch {
-      if (token && typeof storage.removeTokenIfMatch === "function") {
-        await storage.removeTokenIfMatch(token).catch(() => {});
+    } catch (err) {
+      if (sessionVersionRef.current !== version) return;
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        let removed = false;
+        if (token && typeof storage.removeTokenIfMatch === "function") {
+          removed = await storage.removeTokenIfMatch(token).catch(() => false);
+        }
+        if (sessionVersionRef.current !== version) return;
+        if (token && !removed) {
+          const currentToken = await storage.getToken().catch(() => null);
+          if (sessionVersionRef.current !== version) return;
+          if (currentToken && currentToken !== token) {
+            sessionVersionRef.current += 1;
+            setUser(null);
+            await restoreSession();
+            return;
+          }
+        }
+        setUser(null);
+        setRestoreError("");
+      } else {
+        // Retain token on network/5xx errors (e.g. 503) so the user can retry.
+        setRestoreError(err?.message || "Failed to restore session.");
       }
-      if (sessionVersionRef.current === version) setUser(null);
     } finally {
       if (sessionVersionRef.current === version) setLoading(false);
     }
@@ -209,7 +236,15 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, logout, isAdmin: !!user?.roles?.includes("Admin") }}
+      value={{
+        user,
+        loading,
+        restoreError,
+        retryRestore: restoreSession,
+        login,
+        logout,
+        isAdmin: !!user?.roles?.includes("Admin"),
+      }}
     >
       {children}
     </AuthContext.Provider>

@@ -11,6 +11,22 @@ import {
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
+const INCOMPLETE_LOGOUT_ERROR = "Could not complete sign-out on this device. Please retry sign-out.";
+
+const isAuthFailure = (err) => {
+  const status = err?.response?.status;
+  return status === 401 || status === 403;
+};
+
+async function tryClearSuppressedToken(storage) {
+  try {
+    await storage.removeToken();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function reconcileFailedAuthToken(storage, failedToken) {
   let removed = false;
   if (failedToken && typeof storage.removeTokenIfMatch === "function") {
@@ -67,15 +83,11 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     let attemptedToken = null;
     try {
       if (suppressStoredTokenRef.current) {
-        try {
-          await storage.removeToken();
-          suppressStoredTokenRef.current = false;
-        } catch {
-          /* keep suppressing stale stored credentials until removal succeeds or a new login occurs */
-        }
+        const cleared = await tryClearSuppressedToken(storage);
+        if (cleared) suppressStoredTokenRef.current = false;
         if (sessionVersionRef.current !== version) return;
         setUserState(null);
-        setRestoreError("");
+        setRestoreError(cleared ? "" : INCOMPLETE_LOGOUT_ERROR);
         return;
       }
 
@@ -94,8 +106,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       setUserState(me);
     } catch (err) {
       if (sessionVersionRef.current !== version) return;
-      const status = err?.response?.status;
-      if (status === 401 || status === 403) {
+      if (isAuthFailure(err)) {
         const failedToken = err?.config?._requestToken ?? attemptedToken;
         const hasNewerToken = await reconcileFailedAuthToken(storage, failedToken);
         if (sessionVersionRef.current !== version) return;
@@ -210,7 +221,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
           // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
           // and surface the incomplete sign-out because server logout is stateless.
           console.error("Failed to remove token from session storage during logout:", err);
-          setRestoreError("Could not complete sign-out on this device. Please retry sign-out.");
+          setRestoreError(INCOMPLETE_LOGOUT_ERROR);
           incompleteLogoutError = err;
         }
       }
