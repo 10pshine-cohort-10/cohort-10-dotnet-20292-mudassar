@@ -75,6 +75,8 @@ export default function TaskList() {
   const requestGenRef = useRef(0);
   const searchParamsRef = useRef(searchParams);
   searchParamsRef.current = searchParams;
+  const cacheKeyRef = useRef(cacheKey);
+  cacheKeyRef.current = cacheKey;
 
   const load = useCallback(async () => {
     controllerRef.current?.abort();
@@ -181,16 +183,19 @@ export default function TaskList() {
   const handleDelete = async (task) => {
     if (pendingDeleteIdsRef.current.has(task.id) || pendingDeleteIds.has(task.id)) return;
     if (!window.confirm(`Delete task "${task.title}"?`)) return;
+    const originatingCacheKey = cacheKeyRef.current;
     pendingDeleteIdsRef.current.add(task.id);
     setPendingDeleteIds((prev) => new Set(prev).add(task.id));
     setError("");
     try {
       await deleteTask(task.id);
-      setData((prev) => ({
-        ...prev,
-        items: (prev.items ?? []).filter((item) => item.id !== task.id),
-        totalCount: Math.max(0, (prev.totalCount || 0) - 1),
-      }));
+      if (cacheKeyRef.current === originatingCacheKey) {
+        setData((prev) => ({
+          ...prev,
+          items: (prev.items ?? []).filter((item) => item.id !== task.id),
+          totalCount: Math.max(0, (prev.totalCount || 0) - 1),
+        }));
+      }
       deletePageCacheByPrefix(userCachePrefix);
       requestGenRef.current += 1;
       await loadRef.current();

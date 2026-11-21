@@ -1,5 +1,7 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Serilog.Context;
 using TaskManager.Api.Exceptions;
 
 namespace TaskManager.Api.Middleware;
@@ -18,18 +20,28 @@ public class GlobalExceptionMiddleware(
         }
         catch (Exception ex)
         {
-            if (ctx.Response.HasStarted)
+            var userId = GetUserId(ctx);
+            using (LogContext.PushProperty("UserId", userId))
+            using (LogContext.PushProperty("TraceId", ctx.TraceIdentifier))
             {
-                log.LogError(ex, "Unhandled exception after response started on {Method} {Path} (TraceId {TraceId})",
-                    ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier);
-                throw;
-            }
+                if (ctx.Response.HasStarted)
+                {
+                    log.LogError(ex, "Unhandled exception after response started on {Method} {Path} for UserId {UserId} (TraceId {TraceId})",
+                        ctx.Request.Method, ctx.Request.Path, userId, ctx.TraceIdentifier);
+                    throw;
+                }
 
-            await HandleAsync(ctx, ex);
+                await HandleAsync(ctx, ex, userId);
+            }
         }
     }
 
-    private async Task HandleAsync(HttpContext ctx, Exception ex)
+    private static string GetUserId(HttpContext ctx) =>
+        ctx.User.Identity?.IsAuthenticated == true
+            ? ctx.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "Unknown"
+            : "Anonymous";
+
+    private async Task HandleAsync(HttpContext ctx, Exception ex, string userId)
     {
         var (status, title) = ex switch
         {
@@ -41,11 +53,11 @@ public class GlobalExceptionMiddleware(
         };
 
         if (status >= 500)
-            log.LogError(ex, "Unhandled exception on {Method} {Path} (TraceId {TraceId})",
-                ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier);
+            log.LogError(ex, "Unhandled exception on {Method} {Path} for UserId {UserId} (TraceId {TraceId})",
+                ctx.Request.Method, ctx.Request.Path, userId, ctx.TraceIdentifier);
         else
-            log.LogWarning(ex, "Handled {ExceptionType} ({StatusCode}) on {Method} {Path} (TraceId {TraceId}): {Message}",
-                ex.GetType().Name, status, ctx.Request.Method, ctx.Request.Path, ctx.TraceIdentifier, ex.Message);
+            log.LogWarning(ex, "Handled {ExceptionType} ({StatusCode}) on {Method} {Path} for UserId {UserId} (TraceId {TraceId}): {Message}",
+                ex.GetType().Name, status, ctx.Request.Method, ctx.Request.Path, userId, ctx.TraceIdentifier, ex.Message);
 
         if (ctx.Response.HasStarted)
             return;

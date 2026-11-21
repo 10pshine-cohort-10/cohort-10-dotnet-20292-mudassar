@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTaskById, updateTaskStatus } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
+import { deletePageCacheByPrefix } from "../utils/pageCache";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -63,6 +64,12 @@ export default function TaskDetail() {
     };
   }, [load]);
 
+  const invalidateTaskCaches = () => {
+    const userIdKey = user?.id ?? "anon";
+    deletePageCacheByPrefix(`tasks:${userIdKey}:`);
+    deletePageCacheByPrefix(`dashboard:${userIdKey}`);
+  };
+
   const handleStatusChange = async (newStatus) => {
     if (!task || updatingStatus || deleting) return;
     const targetId = id;
@@ -72,6 +79,7 @@ export default function TaskDetail() {
     setError("");
     try {
       const updated = await updateTaskStatus(targetId, newStatus);
+      invalidateTaskCaches();
       if (!isCurrentStatusGen(routeGen, statusGen, targetId)) return;
       setTask(updated);
     } catch (e) {
@@ -92,6 +100,7 @@ export default function TaskDetail() {
     setError("");
     try {
       await deleteTask(targetId);
+      invalidateTaskCaches();
       if (!isCurrentRouteGen(routeGen, targetId)) return;
       navigate("/tasks", { replace: true });
     } catch (e) {

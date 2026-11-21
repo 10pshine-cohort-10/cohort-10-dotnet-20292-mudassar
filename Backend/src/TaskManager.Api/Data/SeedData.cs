@@ -90,7 +90,20 @@ public static class SeedData
             ? await db.Database.BeginTransactionAsync()
             : null;
 
-        var createResult = await users.CreateAsync(account, password);
+        IdentityResult createResult;
+        try
+        {
+            createResult = await users.CreateAsync(account, password);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            if (tx is not null)
+                await tx.RollbackAsync();
+
+            log.LogInformation(ex, "{Role} account was already seeded concurrently by another instance.", role);
+            return;
+        }
+
         if (!createResult.Succeeded)
         {
             if (tx is not null)
