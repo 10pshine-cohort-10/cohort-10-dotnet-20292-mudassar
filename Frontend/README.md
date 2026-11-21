@@ -258,8 +258,29 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 export default function ProtectedRoute({ adminOnly = false }) {
-  const { user, loading, isAdmin } = useAuth();
-  if (loading) return <p>Loading...</p>;
+  const { user, loading, restoreError, retryRestore, logout, isAdmin } = useAuth();
+  if (loading) {
+    return (
+      <p role="status" aria-live="polite">
+        Loading...
+      </p>
+    );
+  }
+  if (!user && restoreError) {
+    return (
+      <div className="alert error" role="alert">
+        <p>{restoreError}</p>
+        <div className="row-actions">
+          <button type="button" onClick={() => void retryRestore()}>
+            Retry
+          </button>
+          <button type="button" onClick={() => void logout()}>
+            Sign in again
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && !isAdmin) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
