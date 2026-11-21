@@ -145,25 +145,28 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const [loading, setLoading] = useState(true);
   const sessionVersionRef = useRef(0);
 
-  useEffect(() => {
+  const restoreSession = async () => {
     setActiveSessionStorage(storage);
-    const version = ++sessionVersionRef.current;
-    (async () => {
-      let token = null;
-      try {
-        token = await storage.getToken();
-        if (sessionVersionRef.current !== version || !token) return;
-        const { data } = await client.get("/auth/me");
-        if (sessionVersionRef.current === version) setUser(data);
-      } catch {
-        if (token && typeof storage.removeTokenIfMatch === "function") {
-          await storage.removeTokenIfMatch(token).catch(() => {});
-        }
-        if (sessionVersionRef.current === version) setUser(null);
-      } finally {
-        if (sessionVersionRef.current === version) setLoading(false);
+    const version = sessionVersionRef.current;
+    let token = null;
+    try {
+      token = await storage.getToken();
+      if (sessionVersionRef.current !== version || !token) return;
+      const { data } = await client.get("/auth/me");
+      if (sessionVersionRef.current === version) setUser(data);
+    } catch {
+      if (token && typeof storage.removeTokenIfMatch === "function") {
+        await storage.removeTokenIfMatch(token).catch(() => {});
       }
-    })();
+      if (sessionVersionRef.current === version) setUser(null);
+    } finally {
+      if (sessionVersionRef.current === version) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    sessionVersionRef.current += 1;
+    void restoreSession();
     return () => {
       sessionVersionRef.current += 1;
     };
@@ -173,12 +176,19 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     const { data } = await client.post("/auth/login", { email, password });
     const loginVersion = ++sessionVersionRef.current;
+    let superseded = false;
     try {
       const applied = await storage.setToken(data.token);
-      if (applied !== false && sessionVersionRef.current === loginVersion) {
+      if (applied === false) {
+        superseded = true;
+      } else if (sessionVersionRef.current === loginVersion) {
         setUser(data.user);
       }
     } finally {
+      if (superseded && sessionVersionRef.current === loginVersion) {
+        setUser(null);
+        await restoreSession();
+      }
       if (sessionVersionRef.current === loginVersion) {
         setLoading(false);
       }

@@ -187,13 +187,12 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     logoutInFlightRef.current = true;
     const startingVersion = sessionVersionRef.current;
-    let serverRevoked = true;
     let incompleteLogoutError = null;
 
     try {
       await logoutRequest({ timeout: 3000 });
     } catch {
-      serverRevoked = false;
+      /* discard local session even if the server times out or is unreachable */
     } finally {
       logoutInFlightRef.current = false;
       // Only clear session state if no newer login occurred while logout was in flight.
@@ -208,12 +207,11 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
           await storage.removeToken();
           suppressStoredTokenRef.current = false;
         } catch (err) {
-          // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token.
+          // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
+          // and surface the incomplete sign-out because server logout is stateless.
           console.error("Failed to remove token from session storage during logout:", err);
-          if (!serverRevoked) {
-            setRestoreError("Could not complete sign-out on this device. Please retry sign-out.");
-            incompleteLogoutError = err;
-          }
+          setRestoreError("Could not complete sign-out on this device. Please retry sign-out.");
+          incompleteLogoutError = err;
         }
       }
     }
