@@ -173,8 +173,8 @@ export function subscribeTokenChanges(listener) {
 const IDB_OPEN_TIMEOUT_MS = 3000;
 let useMemoryOnly = false;
 
-function openAuthDb() {
-  return new Promise((resolve) => {
+function openAuthDb({ throwOnTimeout = false } = {}) {
+  return new Promise((resolve, reject) => {
     if (useMemoryOnly || typeof indexedDB === "undefined") {
       resolve(null);
       return;
@@ -183,6 +183,10 @@ function openAuthDb() {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
+      if (throwOnTimeout) {
+        reject(new Error("Timed out opening IndexedDB."));
+        return;
+      }
       useMemoryOnly = true;
       resolve(null);
     }, IDB_OPEN_TIMEOUT_MS);
@@ -322,13 +326,12 @@ export const defaultSessionStorage = {
   async removeToken() {
     const incomingMeta = createNextWriteMeta(null);
     applyWinningMetaInMemory(incomingMeta);
-    const db = await openAuthDb();
-    if (!db) {
-      notifyChange(incomingMeta);
-      return;
-    }
     let shouldNotify = true;
     try {
+      const db = await openAuthDb({ throwOnTimeout: true });
+      if (!db) {
+        return;
+      }
       const { applied } = await persistMetaIfNewerInDb(
         db,
         incomingMeta,

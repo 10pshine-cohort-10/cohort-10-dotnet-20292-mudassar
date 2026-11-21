@@ -25,6 +25,7 @@ export default function Profile() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const hasInteractedRef = useRef(false);
+  const logoutPromiseRef = useRef(null);
 
   // Operation: Get user info from backend and display
   useEffect(() => {
@@ -53,11 +54,22 @@ export default function Profile() {
   }, [setUser, getSessionVersion]);
 
   const handleLogout = async () => {
+    const isInitiator = !logoutPromiseRef.current;
+    const pendingLogout =
+      logoutPromiseRef.current ?? (logoutPromiseRef.current = Promise.resolve(logout()));
     try {
-      await logout();
-      navigate("/login", { replace: true });
+      await pendingLogout;
+      if (isInitiator) {
+        navigate("/login", { replace: true });
+      }
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (isInitiator) {
+        setError(getErrorMessage(err));
+      }
+    } finally {
+      if (logoutPromiseRef.current === pendingLogout) {
+        logoutPromiseRef.current = null;
+      }
     }
   };
 

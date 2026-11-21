@@ -173,10 +173,15 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     const { data } = await client.post("/auth/login", { email, password });
     const loginVersion = ++sessionVersionRef.current;
-    const applied = await storage.setToken(data.token);
-    if (applied !== false && sessionVersionRef.current === loginVersion) {
-      setUser(data.user);
-      setLoading(false);
+    try {
+      const applied = await storage.setToken(data.token);
+      if (applied !== false && sessionVersionRef.current === loginVersion) {
+        setUser(data.user);
+      }
+    } finally {
+      if (sessionVersionRef.current === loginVersion) {
+        setLoading(false);
+      }
     }
   };
 
