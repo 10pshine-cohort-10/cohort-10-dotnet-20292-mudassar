@@ -53,8 +53,12 @@ export default function Profile() {
   }, [setUser, getSessionVersion]);
 
   const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
   };
 
   const handleSaveName = async (e) => {

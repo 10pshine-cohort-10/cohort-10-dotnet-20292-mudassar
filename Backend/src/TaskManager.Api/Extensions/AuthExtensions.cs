@@ -19,6 +19,8 @@ public static class AuthExtensions
 
     public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(config);
+
         var jwt = config.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
         if (string.IsNullOrWhiteSpace(jwt.Key) || jwt.Key.Length < 32)
             throw new InvalidOperationException(

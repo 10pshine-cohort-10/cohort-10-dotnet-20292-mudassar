@@ -142,7 +142,9 @@ public class UserService(
                 throw new AppValidationException(string.Join(" ", addResult.Errors.Select(e => e.Description)));
 
             // Revoke previously issued JWT tokens so role changes take effect immediately.
-            await users.UpdateSecurityStampAsync(user);
+            var stampResult = await users.UpdateSecurityStampAsync(user);
+            if (!stampResult.Succeeded)
+                throw new AppValidationException(string.Join(" ", stampResult.Errors.Select(e => e.Description)));
 
             if (tx is not null)
                 await tx.CommitAsync();
@@ -185,7 +187,11 @@ public class UserService(
                 throw new AppValidationException(string.Join(" ", updateResult.Errors.Select(e => e.Description)));
 
             if (!isActive)
-                await users.UpdateSecurityStampAsync(user);
+            {
+                var stampResult = await users.UpdateSecurityStampAsync(user);
+                if (!stampResult.Succeeded)
+                    throw new AppValidationException(string.Join(" ", stampResult.Errors.Select(e => e.Description)));
+            }
 
             if (tx is not null)
                 await tx.CommitAsync();

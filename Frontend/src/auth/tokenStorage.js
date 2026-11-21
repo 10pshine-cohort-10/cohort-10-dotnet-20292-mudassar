@@ -170,6 +170,7 @@ export function subscribeTokenChanges(listener) {
   return () => listeners.delete(listener);
 }
 
+const IDB_OPEN_TIMEOUT_MS = 3000;
 let useMemoryOnly = false;
 
 function openAuthDb() {
@@ -178,6 +179,14 @@ function openAuthDb() {
       resolve(null);
       return;
     }
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      useMemoryOnly = true;
+      resolve(null);
+    }, IDB_OPEN_TIMEOUT_MS);
+
     try {
       const req = indexedDB.open(DB_NAME, 1);
       req.onupgradeneeded = () => {
@@ -186,14 +195,29 @@ function openAuthDb() {
           db.createObjectStore(STORE_NAME);
         }
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        clearTimeout(timer);
+        if (settled) {
+          req.result?.close();
+          return;
+        }
+        settled = true;
+        resolve(req.result);
+      };
       req.onerror = () => {
+        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
         useMemoryOnly = true;
         resolve(null);
       };
     } catch {
-      useMemoryOnly = true;
-      resolve(null);
+      clearTimeout(timer);
+      if (!settled) {
+        settled = true;
+        useMemoryOnly = true;
+        resolve(null);
+      }
     }
   });
 }
@@ -256,7 +280,10 @@ export const defaultSessionStorage = {
         if (record.meta) {
           applyWinningMetaInMemory(record.meta);
         }
-        resolve(loggedOutOverride ? null : record.token);
+        const effectiveToken = memoryFallback.has(TOKEN_KEY)
+          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token
+          : record.token;
+        resolve(loggedOutOverride ? null : effectiveToken);
       };
       tx.onabort = () => {
         const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
@@ -272,9 +299,9 @@ export const defaultSessionStorage = {
   },
   async setToken(token) {
     const incomingMeta = createNextWriteMeta(token);
-    const appliedInMemory = applyWinningMetaInMemory(incomingMeta);
     const db = await openAuthDb();
     if (!db) {
+      const appliedInMemory = applyWinningMetaInMemory(incomingMeta);
       if (appliedInMemory) {
         notifyChange(incomingMeta);
       }

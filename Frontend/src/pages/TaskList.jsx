@@ -157,6 +157,7 @@ export default function TaskList() {
 
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;
+    const originatingUserIdKey = user?.id ?? "anon";
     setError("");
     setPendingStatusIds((prev) => new Set(prev).add(task.id));
     try {
@@ -165,7 +166,8 @@ export default function TaskList() {
         ...prev,
         items: (prev.items ?? []).map((item) => (item.id === task.id ? updated : item)),
       }));
-      deletePageCacheByPrefix(userCachePrefix);
+      deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
+      deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
       // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
       await loadRef.current();
@@ -184,6 +186,7 @@ export default function TaskList() {
     if (pendingDeleteIdsRef.current.has(task.id) || pendingDeleteIds.has(task.id)) return;
     if (!window.confirm(`Delete task "${task.title}"?`)) return;
     const originatingCacheKey = cacheKeyRef.current;
+    const originatingUserIdKey = user?.id ?? "anon";
     pendingDeleteIdsRef.current.add(task.id);
     setPendingDeleteIds((prev) => new Set(prev).add(task.id));
     setError("");
@@ -196,7 +199,8 @@ export default function TaskList() {
           totalCount: Math.max(0, (prev.totalCount || 0) - 1),
         }));
       }
-      deletePageCacheByPrefix(userCachePrefix);
+      deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
+      deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
       requestGenRef.current += 1;
       await loadRef.current();
     } catch (e) {

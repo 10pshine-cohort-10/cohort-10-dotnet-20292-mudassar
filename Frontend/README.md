@@ -133,7 +133,7 @@ export function getErrorMessage(error) {
 
 ```jsx
 // src/auth/AuthContext.jsx
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import client from "../api/axiosClient";
 import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
 
@@ -143,33 +143,41 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const sessionVersionRef = useRef(0);
 
   useEffect(() => {
     setActiveSessionStorage(storage);
-    let active = true;
+    const version = ++sessionVersionRef.current;
     (async () => {
+      let token = null;
       try {
-        const token = await storage.getToken();
-        if (!token) return;
+        token = await storage.getToken();
+        if (sessionVersionRef.current !== version || !token) return;
         const { data } = await client.get("/auth/me");
-        if (active) setUser(data);
+        if (sessionVersionRef.current === version) setUser(data);
       } catch {
-        await storage.removeToken().catch(() => {});
-        if (active) setUser(null);
+        if (token && typeof storage.removeTokenIfMatch === "function") {
+          await storage.removeTokenIfMatch(token).catch(() => {});
+        }
+        if (sessionVersionRef.current === version) setUser(null);
       } finally {
-        if (active) setLoading(false);
+        if (sessionVersionRef.current === version) setLoading(false);
       }
     })();
     return () => {
-      active = false;
+      sessionVersionRef.current += 1;
     };
   }, [storage]);
 
   const login = async (email, password) => {
     setActiveSessionStorage(storage);
     const { data } = await client.post("/auth/login", { email, password });
-    await storage.setToken(data.token);
-    setUser(data.user);
+    const loginVersion = ++sessionVersionRef.current;
+    const applied = await storage.setToken(data.token);
+    if (applied !== false && sessionVersionRef.current === loginVersion) {
+      setUser(data.user);
+      setLoading(false);
+    }
   };
 
   const logout = async () => {
@@ -177,8 +185,10 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     try {
       await client.post("/auth/logout");
     } finally {
+      sessionVersionRef.current += 1;
       await storage.removeToken();
       setUser(null);
+      setLoading(false);
     }
   };
 

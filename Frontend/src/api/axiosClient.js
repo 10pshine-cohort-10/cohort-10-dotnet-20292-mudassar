@@ -27,12 +27,10 @@ client.interceptors.response.use(
     if (error.response?.status === 401 && !isPublic && requestToken) {
       let removed = false;
       if (typeof storage.removeTokenIfMatch === "function") {
-        removed = await storage.removeTokenIfMatch(requestToken);
-      } else {
-        const currentToken = await storage.getToken();
-        if (currentToken === requestToken) {
-          await storage.removeToken();
-          removed = true;
+        try {
+          removed = await storage.removeTokenIfMatch(requestToken);
+        } catch {
+          // Keep the original 401 rejection if conditional token cleanup fails.
         }
       }
       if (removed) {

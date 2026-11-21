@@ -119,13 +119,15 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             }
             else if (entry.State == EntityState.Modified && entry.Entity.IsDeleted)
             {
-                if (entry.Entity.DeletedAt is null)
-                {
-                    entry.Entity.DeletedAt = now;
-                    entry.Entity.UpdatedAt = now;
-                    entry.Property(t => t.DeletedAt).IsModified = true;
-                    entry.Property(t => t.UpdatedAt).IsModified = true;
-                }
+                var deletedAt = entry.Entity.DeletedAt ?? now;
+                entry.CurrentValues.SetValues(entry.OriginalValues);
+                entry.State = EntityState.Unchanged;
+                entry.Entity.IsDeleted = true;
+                entry.Entity.DeletedAt = deletedAt;
+                entry.Entity.UpdatedAt = now;
+                entry.Property(t => t.IsDeleted).IsModified = true;
+                entry.Property(t => t.DeletedAt).IsModified = true;
+                entry.Property(t => t.UpdatedAt).IsModified = true;
 
                 if (entry.Entity.Id != 0)
                 {

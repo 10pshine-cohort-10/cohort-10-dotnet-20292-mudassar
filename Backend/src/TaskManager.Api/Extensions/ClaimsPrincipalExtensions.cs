@@ -13,6 +13,10 @@ public static class ClaimsPrincipalExtensions
         return Guid.TryParse(value, out var id) ? id : throw new UnauthorizedException("Invalid token.");
     }
 
-    public static bool IsAdmin(this ClaimsPrincipal user) => user.IsInRole(Roles.Admin);
+    public static bool IsAdmin(this ClaimsPrincipal user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        return user.IsInRole(Roles.Admin);
+    }
 }
 

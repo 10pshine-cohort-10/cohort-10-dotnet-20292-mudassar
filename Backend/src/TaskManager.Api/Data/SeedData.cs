@@ -20,8 +20,41 @@ public static class SeedData
 
         var roles = sp.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
         foreach (var r in Roles.All)
-            if (!await roles.RoleExistsAsync(r))
-                await roles.CreateAsync(new IdentityRole<Guid>(r));
+        {
+            if (await roles.RoleExistsAsync(r))
+                continue;
+
+            var roleEntity = new IdentityRole<Guid>(r);
+            IdentityResult roleResult;
+            try
+            {
+                roleResult = await roles.CreateAsync(roleEntity);
+            }
+            catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+            {
+                db.Entry(roleEntity).State = EntityState.Detached;
+                if (await roles.RoleExistsAsync(r))
+                {
+                    log.LogInformation(ex, "Role {Role} was already seeded concurrently by another instance.", r);
+                    continue;
+                }
+
+                throw;
+            }
+
+            if (!roleResult.Succeeded)
+            {
+                db.Entry(roleEntity).State = EntityState.Detached;
+                if (await roles.RoleExistsAsync(r))
+                {
+                    log.LogInformation("Role {Role} was already seeded concurrently by another instance.", r);
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    $"Could not seed role '{r}': {string.Join(" ", roleResult.Errors.Select(e => e.Description))}");
+            }
+        }
 
         var users = sp.GetRequiredService<UserManager<ApplicationUser>>();
         await SeedAccountAsync(db, users, config.GetSection("SeedAdmin"), Roles.Admin, "Admin", log);
