@@ -115,6 +115,9 @@ public static class AuthExtensions
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<IDashboardService, DashboardService>();
 
         services.AddRateLimiter(o =>
         {
