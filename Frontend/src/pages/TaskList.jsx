@@ -355,6 +355,7 @@ export default function TaskList() {
 
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;
+    const originatingCacheKey = cacheKeyRef.current;
     const originatingOwner = currentOwnerRef.current;
     setError("");
     setPendingStatusIds((prev) => new Set(prev).add(task.id));
@@ -362,18 +363,20 @@ export default function TaskList() {
       const updated = await updateTaskStatus(task.id, newStatus);
       invalidateOwnerCaches(originatingOwner);
       if (!canReloadForOwner(originatingOwner)) return;
-      setData((prev) => {
-        const nextStatus = updated?.status ?? newStatus;
-        const matchesStatusFilter = !statusFilter || nextStatus === statusFilter;
-        const prevItems = prev.items ?? [];
-        const nextItems = matchesStatusFilter
-          ? prevItems.map((item) => (item.id === task.id ? updated : item))
-          : prevItems.filter((item) => item.id !== task.id);
-        return {
-          ...prev,
-          items: nextItems,
-        };
-      });
+      if (cacheKeyRef.current === originatingCacheKey) {
+        setData((prev) => {
+          const nextStatus = updated?.status ?? newStatus;
+          const matchesStatusFilter = !statusFilter || nextStatus === statusFilter;
+          const prevItems = prev.items ?? [];
+          const nextItems = matchesStatusFilter
+            ? prevItems.map((item) => (item.id === task.id ? updated : item))
+            : prevItems.filter((item) => item.id !== task.id);
+          return {
+            ...prev,
+            items: nextItems,
+          };
+        });
+      }
       // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
       await loadRef.current();
