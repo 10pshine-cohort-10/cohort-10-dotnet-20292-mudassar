@@ -9,25 +9,25 @@ using TaskManager.Api.Middleware;
 
 await EnvFileLoader.LoadAsync();
 
-Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Information()
-    .Enrich.FromLogContext()
-    .WriteTo.Async(
-        a => a.Console(formatProvider: CultureInfo.InvariantCulture),
-        bufferSize: 10000,
-        blockWhenFull: false)
-    .CreateBootstrapLogger();
+var isTesting = false;
+EnsureBootstrapLogger();
 
 try
 {
     Log.Information("Starting TaskManager API host");
 
     var builder = WebApplication.CreateBuilder(args);
+    isTesting = builder.Environment.IsEnvironment("Testing");
 
-    builder.Host.UseSerilog((ctx, sp, cfg) => cfg
-        .ReadFrom.Configuration(ctx.Configuration)
-        .ReadFrom.Services(sp)
-        .Enrich.FromLogContext());
+    builder.Host.ConfigureServices((ctx, services) =>
+    {
+        isTesting = ctx.HostingEnvironment.IsEnvironment("Testing");
+        services.AddSerilog((sp, cfg) => cfg
+            .ReadFrom.Configuration(ctx.Configuration)
+            .ReadFrom.Services(sp)
+            .Enrich.FromLogContext(),
+            preserveStaticLogger: isTesting);
+    });
 
     // ---------- Services ----------
     builder.Services.AddControllers()
@@ -99,7 +99,43 @@ catch (Exception ex) when (ex is not HostAbortedException)
 }
 finally
 {
-    await Log.CloseAndFlushAsync();
+    if (!isTesting)
+    {
+        await Log.CloseAndFlushAsync();
+        ResetBootstrapLogger();
+    }
 }
 
-public partial class Program { }
+public partial class Program
+{
+    private static readonly Lock BootstrapLoggerLock = new();
+    private static bool _bootstrapLoggerInitialized;
+
+    private static void EnsureBootstrapLogger()
+    {
+        lock (BootstrapLoggerLock)
+        {
+            if (_bootstrapLoggerInitialized)
+                return;
+
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .Enrich.FromLogContext()
+                .WriteTo.Async(
+                    a => a.Console(formatProvider: CultureInfo.InvariantCulture),
+                    bufferSize: 10000,
+                    blockWhenFull: false)
+                .CreateBootstrapLogger();
+
+            _bootstrapLoggerInitialized = true;
+        }
+    }
+
+    private static void ResetBootstrapLogger()
+    {
+        lock (BootstrapLoggerLock)
+        {
+            _bootstrapLoggerInitialized = false;
+        }
+    }
+}

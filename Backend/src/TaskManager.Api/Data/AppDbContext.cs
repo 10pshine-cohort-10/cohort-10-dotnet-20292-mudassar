@@ -65,7 +65,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         var softDeletedTaskIds = new HashSet<int>();
         var softDeletedTasks = new HashSet<TaskItem>(ReferenceEqualityComparer.Instance);
 
-        foreach (var entry in ChangeTracker.Entries<TaskItem>())
+        foreach (var entry in ChangeTracker.Entries<TaskItem>().ToList())
         {
             if (entry.State == EntityState.Deleted || (entry.State == EntityState.Modified && entry.Entity.IsDeleted))
             {
@@ -98,7 +98,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
 
         var now = DateTime.UtcNow;
 
-        foreach (var entry in ChangeTracker.Entries<TaskItem>())
+        foreach (var entry in ChangeTracker.Entries<TaskItem>().ToList())
         {
             if (entry.State == EntityState.Deleted)
             {
@@ -253,7 +253,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
             return captured;
         }
 
-        foreach (var entry in ChangeTracker.Entries<TEntity>())
+        foreach (var entry in ChangeTracker.Entries<TEntity>().ToList())
         {
             if (entry.State != EntityState.Added)
             {
@@ -300,7 +300,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
         Action<EntityEntry<TEntity>> restoreRelationship)
         where TEntity : class
     {
-        foreach (var dependent in ChangeTracker.Entries<TEntity>())
+        foreach (var dependent in ChangeTracker.Entries<TEntity>().ToList())
         {
             if (dependent.State == EntityState.Deleted && belongsToSoftDeletedTask(dependent))
             {
