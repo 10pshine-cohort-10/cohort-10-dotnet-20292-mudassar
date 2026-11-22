@@ -6,9 +6,17 @@ using TaskManager.Tests.Helpers;
 
 namespace TaskManager.Tests.Integration;
 
-public class CategoriesEndpointsTests(TestApiFactory factory) : IClassFixture<TestApiFactory>
+public class CategoriesEndpointsTests : IClassFixture<TestApiFactory>
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly TestApiFactory factory;
+    private readonly HttpClient _client;
+
+    public CategoriesEndpointsTests(TestApiFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        this.factory = factory;
+        _client = factory.CreateClient();
+    }
 
     private async Task<AuthResponse> LoginAdminAsync()
     {

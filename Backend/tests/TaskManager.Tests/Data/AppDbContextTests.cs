@@ -86,7 +86,7 @@ public sealed class AppDbContextTests : IAsyncLifetime, IDisposable
 
         Assert.Empty(await _db.Tasks.ToListAsync());
 
-        var storedInDb = await _db.Tasks.IgnoreQueryFilters().SingleAsync(t => t.Id == task.Id);
+        var storedInDb = await _db.Tasks.IgnoreQueryFilters().AsNoTracking().SingleAsync(t => t.Id == task.Id);
         Assert.True(storedInDb.IsDeleted);
         Assert.NotNull(storedInDb.DeletedAt);
         Assert.NotNull(storedInDb.UpdatedAt);
@@ -211,7 +211,7 @@ public sealed class AppDbContextTests : IAsyncLifetime, IDisposable
     }
 
     [Fact]
-    public async Task TaskHistory_CascadeDeletesWithTaskItem_AndHidesWhenTaskIsSoftDeleted()
+    public async Task TaskHistory_IsHiddenByQueryFilter_WhenTaskIsSoftDeleted()
     {
         var user = await SeedUserAsync();
         var task = new TaskItem { Title = "Audited task", CreatedById = user.Id };
@@ -234,6 +234,34 @@ public sealed class AppDbContextTests : IAsyncLifetime, IDisposable
 
         Assert.Empty(await _db.TaskHistories.ToListAsync());
         Assert.Single(await _db.TaskHistories.IgnoreQueryFilters().ToListAsync());
+    }
+
+    [Fact]
+    public async Task TaskHistory_CascadeDeletesInDatabase_WhenTaskRowIsPhysicallyDeleted()
+    {
+        var user = await SeedUserAsync();
+        var task = new TaskItem { Title = "Physical cascade check", CreatedById = user.Id };
+        _db.Tasks.Add(task);
+        await _db.SaveChangesAsync();
+
+        _db.TaskHistories.Add(new TaskHistory
+        {
+            TaskItemId = task.Id,
+            UserId = user.Id,
+            Action = "Created",
+            NewValue = "Pending"
+        });
+        await _db.SaveChangesAsync();
+
+        Assert.Single(await _db.TaskHistories.IgnoreQueryFilters().Where(h => h.TaskItemId == task.Id).ToListAsync());
+
+        // Bypass SaveChanges soft-delete interception to verify relational ON DELETE CASCADE on TaskHistories
+        var deletedRows = await _db.Tasks.IgnoreQueryFilters()
+            .Where(t => t.Id == task.Id)
+            .ExecuteDeleteAsync();
+
+        Assert.Equal(1, deletedRows);
+        Assert.Empty(await _db.TaskHistories.IgnoreQueryFilters().Where(h => h.TaskItemId == task.Id).ToListAsync());
     }
 }
 

@@ -10,8 +10,18 @@ public interface IDashboardService
     Task<DashboardSummaryDto> GetSummaryAsync(Guid userId, bool isAdmin);
 }
 
-public class DashboardService(AppDbContext db, ILogger<DashboardService> log) : IDashboardService
+public class DashboardService : IDashboardService
 {
+    private readonly AppDbContext db;
+    private readonly ILogger<DashboardService> log;
+
+    public DashboardService(AppDbContext db, ILogger<DashboardService> log)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(log);
+        this.db = db;
+        this.log = log;
+    }
     public async Task<DashboardSummaryDto> GetSummaryAsync(Guid userId, bool isAdmin)
     {
         // Soft-deleted tasks are excluded by the global query filter.

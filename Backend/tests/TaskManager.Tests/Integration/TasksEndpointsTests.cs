@@ -162,6 +162,27 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
             new CreateTaskDto(uniqueTitle, Priority: TaskPriority.Critical));
         var createRes = await _client.SendAsync(createReq);
         Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var matchingTask = await createRes.Content.ReadFromJsonAsync<TaskDto>();
+        Assert.NotNull(matchingTask);
+
+        // Distractor 1: matching title, different priority
+        using var sameTitleOtherPriorityReq = Authorized(
+            HttpMethod.Post,
+            "/api/tasks",
+            owner.Token,
+            new CreateTaskDto(uniqueTitle, Priority: TaskPriority.Low));
+        var sameTitleOtherPriorityRes = await _client.SendAsync(sameTitleOtherPriorityReq);
+        Assert.Equal(HttpStatusCode.Created, sameTitleOtherPriorityRes.StatusCode);
+
+        // Distractor 2: Critical priority, non-matching title
+        var nonMatchingTitle = $"OtherTask-{Guid.NewGuid():N}"[..20];
+        using var criticalOtherTitleReq = Authorized(
+            HttpMethod.Post,
+            "/api/tasks",
+            owner.Token,
+            new CreateTaskDto(nonMatchingTitle, Priority: TaskPriority.Critical));
+        var criticalOtherTitleRes = await _client.SendAsync(criticalOtherTitleReq);
+        Assert.Equal(HttpStatusCode.Created, criticalOtherTitleRes.StatusCode);
 
         using var filterReq = Authorized(
             HttpMethod.Get,
@@ -172,8 +193,10 @@ public class TasksEndpointsTests(TestApiFactory factory) : IClassFixture<TestApi
 
         var page = await filterRes.Content.ReadFromJsonAsync<PagedResult<TaskDto>>();
         Assert.NotNull(page);
-        Assert.Single(page.Items);
-        Assert.Equal(uniqueTitle, page.Items[0].Title);
+        var returned = Assert.Single(page.Items);
+        Assert.Equal(matchingTask.Id, returned.Id);
+        Assert.Equal(uniqueTitle, returned.Title);
+        Assert.Equal(TaskPriority.Critical, returned.Priority);
     }
 }
 

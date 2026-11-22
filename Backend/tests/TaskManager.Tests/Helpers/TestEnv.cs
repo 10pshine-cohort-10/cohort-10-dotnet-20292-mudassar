@@ -7,7 +7,8 @@ namespace TaskManager.Tests.Helpers;
 /// </summary>
 public static class TestEnv
 {
-    static TestEnv() => EnvFileLoader.Load();
+    public static Task EnsureLoadedAsync(CancellationToken cancellationToken = default) =>
+        EnvFileLoader.LoadAsync(cancellationToken);
 
     public static string JwtIssuer => Get("Jwt__Issuer", "TaskManager");
     public static string JwtAudience => Get("Jwt__Audience", "TaskManagerClient");

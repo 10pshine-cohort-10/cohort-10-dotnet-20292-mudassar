@@ -8,12 +8,16 @@ using TaskManager.Tests.Helpers;
 namespace TaskManager.Tests.Integration;
 
 /// <summary>Runs the real pipeline against an in-memory database using credentials and JWT settings from `.env`.</summary>
-public class TestApiFactory : WebApplicationFactory<Program>
+public class TestApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     public string AdminEmail => TestEnv.AdminEmail;
     public string AdminPassword => TestEnv.AdminPassword;
 
     private readonly string _dbName = $"TaskManagerTests-{Guid.NewGuid()}";
+
+    public Task InitializeAsync() => TestEnv.EnsureLoadedAsync();
+
+    Task IAsyncLifetime.DisposeAsync() => base.DisposeAsync().AsTask();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

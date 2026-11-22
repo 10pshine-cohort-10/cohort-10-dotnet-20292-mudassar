@@ -9,10 +9,14 @@ using TaskManager.Tests.Helpers;
 
 namespace TaskManager.Tests.Services;
 
-public class AuthServiceTests
+public class AuthServiceTests : IAsyncLifetime
 {
     private readonly Mock<UserManager<ApplicationUser>> _users = MockUserManager();
     private readonly Mock<IJwtTokenService> _jwt = new();
+
+    public Task InitializeAsync() => TestEnv.EnsureLoadedAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     private AuthService CreateSut() => new(_users.Object, _jwt.Object, NullLogger<AuthService>.Instance);
 
@@ -28,8 +32,8 @@ public class AuthServiceTests
         IsActive = active
     };
 
-    private static readonly RegisterDto ValidRegister = new(TestEnv.UserName, TestEnv.UserEmail, TestEnv.UserPassword);
-    private static readonly LoginDto ValidLogin = new(TestEnv.UserEmail, TestEnv.UserPassword);
+    private static RegisterDto ValidRegister => new(TestEnv.UserName, TestEnv.UserEmail, TestEnv.UserPassword);
+    private static LoginDto ValidLogin => new(TestEnv.UserEmail, TestEnv.UserPassword);
 
     // ---------- Register ----------
 
@@ -187,6 +191,53 @@ public class AuthServiceTests
 
         Assert.Equal("Updated Name", updated.FullName);
         _users.Verify(u => u.UpdateAsync(user), Times.Once);
+    }
+
+    [Fact]
+    public void Constructor_NullDependencies_ThrowsArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new AuthService(null!, _jwt.Object, NullLogger<AuthService>.Instance));
+        Assert.Throws<ArgumentNullException>(() =>
+            new AuthService(_users.Object, null!, NullLogger<AuthService>.Instance));
+        Assert.Throws<ArgumentNullException>(() =>
+            new AuthService(_users.Object, _jwt.Object, null!));
+    }
+
+    [Fact]
+    public async Task Login_ResetAccessFailedCountFails_ThrowsUnauthorizedWithoutIssuingToken()
+    {
+        var user = NewUser();
+        _users.Setup(u => u.FindByEmailAsync(It.IsAny<string>())).ReturnsAsync(user);
+        _users.Setup(u => u.IsLockedOutAsync(user)).ReturnsAsync(false);
+        _users.Setup(u => u.CheckPasswordAsync(user, It.IsAny<string>())).ReturnsAsync(true);
+        _users.Setup(u => u.ResetAccessFailedCountAsync(user))
+              .ReturnsAsync(IdentityResult.Failed(new IdentityError { Description = "Concurrency failure" }));
+
+        var ex = await Assert.ThrowsAsync<UnauthorizedException>(() => CreateSut().LoginAsync(ValidLogin));
+        Assert.Equal("Invalid email or password.", ex.Message);
+        _jwt.Verify(j => j.Create(It.IsAny<ApplicationUser>(), It.IsAny<IList<string>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Login_AccessFailedConcurrencyConflict_RetriesWithFreshUser()
+    {
+        var initialUser = NewUser();
+        var reloadedUser = NewUser();
+        reloadedUser.Id = initialUser.Id;
+
+        _users.Setup(u => u.FindByEmailAsync(It.IsAny<string>())).ReturnsAsync(initialUser);
+        _users.Setup(u => u.IsLockedOutAsync(It.IsAny<ApplicationUser>())).ReturnsAsync(false);
+        _users.Setup(u => u.CheckPasswordAsync(initialUser, It.IsAny<string>())).ReturnsAsync(false);
+        _users.Setup(u => u.AccessFailedAsync(initialUser))
+              .ReturnsAsync(IdentityResult.Failed(new IdentityError { Code = "ConcurrencyFailure", Description = "Optimistic concurrency failure." }));
+        _users.Setup(u => u.FindByIdAsync(initialUser.Id.ToString())).ReturnsAsync(reloadedUser);
+        _users.Setup(u => u.AccessFailedAsync(reloadedUser)).ReturnsAsync(IdentityResult.Success);
+
+        await Assert.ThrowsAsync<UnauthorizedException>(() => CreateSut().LoginAsync(ValidLogin));
+
+        _users.Verify(u => u.AccessFailedAsync(initialUser), Times.Once);
+        _users.Verify(u => u.AccessFailedAsync(reloadedUser), Times.Once);
     }
 }
 

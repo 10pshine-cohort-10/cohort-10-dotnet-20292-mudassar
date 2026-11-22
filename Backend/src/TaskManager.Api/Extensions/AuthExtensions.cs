@@ -25,6 +25,9 @@ public static class AuthExtensions
         if (string.IsNullOrWhiteSpace(jwt.Key) || jwt.Key.Length < 32)
             throw new InvalidOperationException(
                 "Jwt:Key must be set (user-secrets) and be at least 32 characters.");
+        if (jwt.ExpiryMinutes <= 0)
+            throw new InvalidOperationException(
+                "Jwt:ExpiryMinutes must be greater than zero.");
 
         services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
 

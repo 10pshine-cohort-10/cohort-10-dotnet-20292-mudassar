@@ -38,6 +38,19 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
             return r;
         }
 
+        var adminLogin = await _client.PostAsJsonAsync("/api/auth/login",
+            new LoginDto(factory.AdminEmail, factory.AdminPassword));
+        adminLogin.EnsureSuccessStatusCode();
+        var adminAuth = await adminLogin.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.NotNull(adminAuth);
+
+        using var baselineAdminReq = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard/summary");
+        baselineAdminReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.Token);
+        var baselineAdminRes = await _client.SendAsync(baselineAdminReq);
+        Assert.Equal(HttpStatusCode.OK, baselineAdminRes.StatusCode);
+        var baselineAdminSummary = await baselineAdminRes.Content.ReadFromJsonAsync<DashboardSummaryDto>();
+        Assert.NotNull(baselineAdminSummary);
+
         // Create a second user with their own task (unassigned to first user) to verify ownership scoping
         var otherEmail = $"other-{Guid.NewGuid():N}@example.com";
         (await _client.PostAsJsonAsync("/api/auth/register",
@@ -76,20 +89,17 @@ public class DashboardEndpointsTests(TestApiFactory factory) : IClassFixture<Tes
 
         Assert.Equal(new DashboardSummaryDto(Completed: 1, InProgress: 1, Pending: 0, Total: 2), summary);
 
-        // Admin sees all users' non-deleted tasks across statuses (2 from user 1 + 1 from user 2)
-        var adminLogin = await _client.PostAsJsonAsync("/api/auth/login",
-            new LoginDto(factory.AdminEmail, factory.AdminPassword));
-        adminLogin.EnsureSuccessStatusCode();
-        var adminAuth = await adminLogin.Content.ReadFromJsonAsync<AuthResponse>();
-        Assert.NotNull(adminAuth);
-
+        // Admin sees all users' non-deleted tasks across statuses (+1 Completed, +1 InProgress from user 1, +1 Pending from user 2)
         using var adminReq = new HttpRequestMessage(HttpMethod.Get, "/api/dashboard/summary");
         adminReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth.Token);
         var adminRes = await _client.SendAsync(adminReq);
         Assert.Equal(HttpStatusCode.OK, adminRes.StatusCode);
         var adminSummary = await adminRes.Content.ReadFromJsonAsync<DashboardSummaryDto>();
         Assert.NotNull(adminSummary);
-        Assert.True(adminSummary.Total >= 3);
+        Assert.Equal(baselineAdminSummary.Completed + 1, adminSummary.Completed);
+        Assert.Equal(baselineAdminSummary.InProgress + 1, adminSummary.InProgress);
+        Assert.Equal(baselineAdminSummary.Pending + 1, adminSummary.Pending);
+        Assert.Equal(baselineAdminSummary.Total + 3, adminSummary.Total);
     }
 }
 

@@ -362,10 +362,18 @@ export default function TaskList() {
       const updated = await updateTaskStatus(task.id, newStatus);
       invalidateOwnerCaches(originatingOwner);
       if (!canReloadForOwner(originatingOwner)) return;
-      setData((prev) => ({
-        ...prev,
-        items: (prev.items ?? []).map((item) => (item.id === task.id ? updated : item)),
-      }));
+      setData((prev) => {
+        const nextStatus = updated?.status ?? newStatus;
+        const matchesStatusFilter = !statusFilter || nextStatus === statusFilter;
+        const prevItems = prev.items ?? [];
+        const nextItems = matchesStatusFilter
+          ? prevItems.map((item) => (item.id === task.id ? updated : item))
+          : prevItems.filter((item) => item.id !== task.id);
+        return {
+          ...prev,
+          items: nextItems,
+        };
+      });
       // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
       await loadRef.current();
@@ -498,38 +506,38 @@ export default function TaskList() {
       )}
 
       {isCurrentData && items.length > 0 && (
-        <>
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Title</th>
-                  <th>Category</th>
-                  <th>Assignee</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Due date</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((t) => (
-                  <TaskRow
-                    key={t.id}
-                    task={t}
-                    allowDelete={canDelete(t)}
-                    statusPending={pendingStatusIds.has(t.id)}
-                    deletePending={pendingDeleteIds.has(t.id)}
-                    onStatusChange={handleStatusChange}
-                    onDelete={handleDelete}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Category</th>
+                <th>Assignee</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Due date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  allowDelete={canDelete(t)}
+                  statusPending={pendingStatusIds.has(t.id)}
+                  deletePending={pendingDeleteIds.has(t.id)}
+                  onStatusChange={handleStatusChange}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-          <TaskPagination page={page} totalPages={totalPages} onPageChange={goToPage} />
-        </>
+      {isCurrentData && (
+        <TaskPagination page={page} totalPages={totalPages} onPageChange={goToPage} />
       )}
     </>
   );

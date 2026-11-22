@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using TaskManager.Api.Data;
 using TaskManager.Api.DTOs;
@@ -15,13 +16,40 @@ public interface IAuthService
     Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto);
 }
 
-public class AuthService(
-    UserManager<ApplicationUser> users,
-    IJwtTokenService jwt,
-    ILogger<AuthService> log,
-    AppDbContext? db = null) : IAuthService
+public class AuthService : IAuthService
 {
     private const string InvalidCredentials = "Invalid email or password.";
+    private const int MaxAccessFailedRetries = 3;
+
+    private static readonly ApplicationUser DummyUser = new()
+    {
+        Id = Guid.Empty,
+        UserName = "dummy@taskflow.local",
+        Email = "dummy@taskflow.local"
+    };
+    private static readonly PasswordHasher<ApplicationUser> FallbackPasswordHasher = new();
+    private static readonly string DummyPasswordHash =
+        FallbackPasswordHasher.HashPassword(DummyUser, "DummyTimingEqualizer!123");
+
+    private readonly UserManager<ApplicationUser> users;
+    private readonly IJwtTokenService jwt;
+    private readonly ILogger<AuthService> log;
+    private readonly AppDbContext? db;
+
+    public AuthService(
+        UserManager<ApplicationUser> users,
+        IJwtTokenService jwt,
+        ILogger<AuthService> log,
+        AppDbContext? db = null)
+    {
+        ArgumentNullException.ThrowIfNull(users);
+        ArgumentNullException.ThrowIfNull(jwt);
+        ArgumentNullException.ThrowIfNull(log);
+        this.users = users;
+        this.jwt = jwt;
+        this.log = log;
+        this.db = db;
+    }
 
     public async Task<UserInfoDto> RegisterAsync(RegisterDto dto)
     {
@@ -59,7 +87,23 @@ public class AuthService(
             ? await db.Database.BeginTransactionAsync()
             : null;
 
-        var result = await users.CreateAsync(user, dto.Password);
+        IdentityResult result;
+        try
+        {
+            result = await users.CreateAsync(user, dto.Password);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            if (tx is not null)
+                await tx.RollbackAsync();
+
+            if (db is not null)
+                db.Entry(user).State = EntityState.Detached;
+
+            log.LogWarning(ex, "Registration ignored after concurrent duplicate email constraint violation");
+            return new UserInfoDto(Guid.Empty, fullName, email, [Roles.User]);
+        }
+
         if (!result.Succeeded)
         {
             if (tx is not null)
@@ -131,6 +175,7 @@ public class AuthService(
         var user = await users.FindByEmailAsync(dto.Email.Trim());
         if (user is null || !user.IsActive)
         {
+            VerifyDummyPassword(dto.Password);
             log.LogWarning("Failed login: unknown or inactive user");
             throw new UnauthorizedException(InvalidCredentials);   // same message = no user enumeration
         }
@@ -143,17 +188,80 @@ public class AuthService(
 
         if (!await users.CheckPasswordAsync(user, dto.Password))
         {
-            await users.AccessFailedAsync(user);              // counts toward lockout
+            await RecordAccessFailedAsync(user);                  // counts toward lockout
             log.LogWarning("Failed login for user {UserId}: wrong password", user.Id);
             throw new UnauthorizedException(InvalidCredentials);
         }
 
-        await users.ResetAccessFailedCountAsync(user);
+        var resetResult = await users.ResetAccessFailedCountAsync(user);
+        if (resetResult is not { Succeeded: true })
+        {
+            log.LogWarning("Failed login for user {UserId}: could not reset failed access count", user.Id);
+            throw new UnauthorizedException(InvalidCredentials);
+        }
+
         var roles = await users.GetRolesAsync(user);
         var (token, expires) = jwt.Create(user, roles);
 
         log.LogInformation("User {UserId} logged in with roles {Roles}", user.Id, roles);
         return new AuthResponse(token, expires, new UserInfoDto(user.Id, user.FullName, user.Email!, roles));
+    }
+
+    private void VerifyDummyPassword(string password)
+    {
+        var hasher = users.PasswordHasher ?? FallbackPasswordHasher;
+        _ = hasher.VerifyHashedPassword(DummyUser, DummyPasswordHash, password);
+    }
+
+    private async Task RecordAccessFailedAsync(ApplicationUser user)
+    {
+        var currentUser = user;
+        for (var attempt = 0; attempt <= MaxAccessFailedRetries; attempt++)
+        {
+            IdentityResult? result = null;
+            try
+            {
+                result = await users.AccessFailedAsync(currentUser);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Concurrency conflict while incrementing AccessFailedCount; reload and retry below.
+            }
+
+            if (result is { Succeeded: true })
+                return;
+
+            if (attempt == MaxAccessFailedRetries)
+                break;
+
+            if (db is not null)
+                db.Entry(currentUser).State = EntityState.Detached;
+
+            var reloaded = await users.FindByIdAsync(user.Id.ToString());
+            if (reloaded is null || !reloaded.IsActive || await users.IsLockedOutAsync(reloaded))
+                return;
+
+            currentUser = reloaded;
+        }
+
+        log.LogWarning("Could not record failed access attempt for user {UserId} after concurrency retries", user.Id);
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+    {
+        if (ex.InnerException is SqlException sqlEx && sqlEx.Number is 2601 or 2627)
+            return true;
+
+        var inner = ex.InnerException;
+        if (inner is not null)
+        {
+            var typeName = inner.GetType().Name;
+            if (string.Equals(typeName, "SqliteException", StringComparison.Ordinal) &&
+                inner.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public async Task<UserInfoDto> GetCurrentAsync(Guid userId)

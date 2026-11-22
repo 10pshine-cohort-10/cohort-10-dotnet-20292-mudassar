@@ -23,6 +23,72 @@ let latestWriteMeta = {
   value: null,
 };
 
+let activeAccountIdentity = null;
+let activeSessionRevision = 0;
+let hasResolvedInitialSession = false;
+
+function decodeBase64Url(segment) {
+  const normalized = String(segment).replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  if (typeof atob === "function") {
+    return atob(padded);
+  }
+  return "";
+}
+
+export function getTokenAccountIdentity(token) {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length === 3) {
+    try {
+      const json = decodeBase64Url(parts[1]);
+      if (json) {
+        const payload = JSON.parse(json);
+        const claimId =
+          payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier"] ??
+          payload.sub ??
+          payload.nameid ??
+          payload["http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"] ??
+          payload.email;
+        if (claimId) return String(claimId);
+      }
+    } catch {
+      // Fall back to the raw token string if it is not a standard JSON JWT payload.
+    }
+  }
+  return token;
+}
+
+export function getActiveAccountIdentity() {
+  return activeAccountIdentity;
+}
+
+export function setActiveAccountIdentity(identity) {
+  const normalized = identity ? String(identity) : null;
+  if (activeAccountIdentity !== normalized || !hasResolvedInitialSession) {
+    activeAccountIdentity = normalized;
+    activeSessionRevision += 1;
+    hasResolvedInitialSession = true;
+  }
+}
+
+export function getActiveSessionRevision() {
+  return activeSessionRevision;
+}
+
+export function hasActiveSessionSnapshot() {
+  return hasResolvedInitialSession;
+}
+
+function updateActiveAccountFromToken(token) {
+  const nextIdentity = getTokenAccountIdentity(token);
+  if (activeAccountIdentity !== nextIdentity || !hasResolvedInitialSession) {
+    activeAccountIdentity = nextIdentity;
+    activeSessionRevision += 1;
+    hasResolvedInitialSession = true;
+  }
+}
+
 function compareWriteMeta(incoming, current) {
   if (incoming.timestamp !== current.timestamp) {
     return incoming.timestamp > current.timestamp ? 1 : -1;
@@ -43,24 +109,29 @@ function compareWriteMeta(incoming, current) {
   return 0;
 }
 
-function toStoredRecord(meta) {
-  return {
+function toStoredRecord(meta, { memoryOnly = false } = {}) {
+  const record = {
     token: meta.value ?? null,
     value: meta.value ?? null,
     timestamp: meta.timestamp,
     revision: meta.revision,
     originId: meta.originId ?? "",
   };
+  if (memoryOnly) {
+    record.memoryOnly = true;
+  }
+  return record;
 }
 
 function extractStoredRecord(raw) {
   if (raw === null || raw === undefined) {
-    return { token: null, meta: null };
+    return { token: null, meta: null, memoryOnly: false };
   }
   if (typeof raw === "string") {
     return {
       token: raw,
       meta: { timestamp: 0, revision: 0, originId: "", value: raw },
+      memoryOnly: false,
     };
   }
   if (typeof raw === "object") {
@@ -76,9 +147,10 @@ function extractStoredRecord(raw) {
             value: token,
           }
         : { timestamp: 0, revision: 0, originId: "", value: token },
+      memoryOnly: Boolean(raw.memoryOnly),
     };
   }
-  return { token: null, meta: null };
+  return { token: null, meta: null, memoryOnly: false };
 }
 
 function createNextWriteMeta(newValue, baseMeta = latestWriteMeta) {
@@ -103,20 +175,24 @@ function createNextWriteMeta(newValue, baseMeta = latestWriteMeta) {
   };
 }
 
-function applyWinningMetaInMemory(winningMeta) {
+function getCurrentSessionMeta() {
   const currentStoredMeta = extractStoredRecord(memoryFallback.get(TOKEN_KEY)).meta;
-  const referenceMeta =
-    currentStoredMeta && compareWriteMeta(currentStoredMeta, latestWriteMeta) > 0
-      ? currentStoredMeta
-      : latestWriteMeta;
+  return currentStoredMeta && compareWriteMeta(currentStoredMeta, latestWriteMeta) > 0
+    ? currentStoredMeta
+    : latestWriteMeta;
+}
+
+function applyWinningMetaInMemory(winningMeta, { memoryOnly = false } = {}) {
+  const referenceMeta = getCurrentSessionMeta();
 
   if (compareWriteMeta(winningMeta, referenceMeta) < 0) {
     return false;
   }
 
   latestWriteMeta = winningMeta;
-  memoryFallback.set(TOKEN_KEY, toStoredRecord(winningMeta));
+  memoryFallback.set(TOKEN_KEY, toStoredRecord(winningMeta, { memoryOnly }));
   loggedOutOverride = !winningMeta.value;
+  updateActiveAccountFromToken(winningMeta.value);
   return true;
 }
 
@@ -175,13 +251,13 @@ let indexedDbUnavailable = false;
 let everOpenedIndexedDb = false;
 let transientOpenTimeout = false;
 
-function openAuthDb({ forCleanup = false } = {}) {
+function openAuthDb({ forCleanup = false, allowMemoryFallback = true } = {}) {
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined" || indexedDbUnavailable) {
+    if (typeof indexedDB === "undefined") {
       resolve(null);
       return;
     }
-    if (!forCleanup && transientOpenTimeout) {
+    if (!forCleanup && (indexedDbUnavailable || transientOpenTimeout)) {
       resolve(null);
       return;
     }
@@ -208,11 +284,15 @@ function openAuthDb({ forCleanup = false } = {}) {
       req.onsuccess = () => {
         clearTimeout(timer);
         if (settled) {
+          everOpenedIndexedDb = true;
+          indexedDbUnavailable = false;
+          transientOpenTimeout = false;
           req.result?.close();
           return;
         }
         settled = true;
         everOpenedIndexedDb = true;
+        indexedDbUnavailable = false;
         transientOpenTimeout = false;
         resolve(req.result);
       };
@@ -220,7 +300,7 @@ function openAuthDb({ forCleanup = false } = {}) {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        if (forCleanup && (everOpenedIndexedDb || transientOpenTimeout)) {
+        if (forCleanup && (!allowMemoryFallback || everOpenedIndexedDb || transientOpenTimeout)) {
           reject(req.error ?? new Error("Failed to open IndexedDB."));
           return;
         }
@@ -231,7 +311,7 @@ function openAuthDb({ forCleanup = false } = {}) {
       clearTimeout(timer);
       if (!settled) {
         settled = true;
-        if (forCleanup && (everOpenedIndexedDb || transientOpenTimeout)) {
+        if (forCleanup && (!allowMemoryFallback || everOpenedIndexedDb || transientOpenTimeout)) {
           reject(err instanceof Error ? err : new Error("Failed to open IndexedDB."));
           return;
         }
@@ -253,13 +333,25 @@ function persistMetaIfNewerInDb(db, incomingMeta, defaultErrorMessage) {
 
     getReq.onsuccess = () => {
       const { meta: persistedMeta } = extractStoredRecord(getReq.result);
-      if (!persistedMeta || compareWriteMeta(incomingMeta, persistedMeta) >= 0) {
+      const currentSessionMeta = getCurrentSessionMeta();
+      const isTombstone = incomingMeta.value === null;
+      const sessionAllowsWrite =
+        compareWriteMeta(incomingMeta, currentSessionMeta) >= 0 &&
+        (!isTombstone || !currentSessionMeta.value);
+      const isNewerThanPersisted =
+        !persistedMeta || compareWriteMeta(incomingMeta, persistedMeta) >= 0;
+
+      if (sessionAllowsWrite && isNewerThanPersisted) {
         applied = true;
         winningMeta = incomingMeta;
         putReq = store.put(toStoredRecord(incomingMeta), TOKEN_KEY);
       } else {
         applied = false;
-        winningMeta = persistedMeta;
+        if (persistedMeta && compareWriteMeta(persistedMeta, currentSessionMeta) >= 0) {
+          winningMeta = persistedMeta;
+        } else {
+          winningMeta = currentSessionMeta;
+        }
       }
     };
 
@@ -286,7 +378,9 @@ export const defaultSessionStorage = {
     if (loggedOutOverride) return null;
     const db = await openAuthDb();
     if (!db) {
-      return extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token;
+      const token = extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token;
+      updateActiveAccountFromToken(token);
+      return token;
     }
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readonly");
@@ -303,7 +397,9 @@ export const defaultSessionStorage = {
         const effectiveToken = memoryFallback.has(TOKEN_KEY)
           ? extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token
           : record.token;
-        resolve(loggedOutOverride ? null : effectiveToken);
+        const resolved = loggedOutOverride ? null : effectiveToken;
+        updateActiveAccountFromToken(resolved);
+        resolve(resolved);
       };
       tx.onabort = () => {
         const err = tx.error ?? req.error ?? new Error("Failed to read token from IndexedDB.");
@@ -321,7 +417,8 @@ export const defaultSessionStorage = {
     const incomingMeta = createNextWriteMeta(token);
     const db = await openAuthDb();
     if (!db) {
-      const appliedInMemory = applyWinningMetaInMemory(incomingMeta);
+      const memoryOnly = !everOpenedIndexedDb && !transientOpenTimeout;
+      const appliedInMemory = applyWinningMetaInMemory(incomingMeta, { memoryOnly });
       if (appliedInMemory) {
         notifyChange(incomingMeta);
       }
@@ -342,10 +439,11 @@ export const defaultSessionStorage = {
   async removeToken() {
     const incomingMeta = createNextWriteMeta(null);
     applyWinningMetaInMemory(incomingMeta);
-    let shouldNotify = true;
+    let shouldNotify = false;
     try {
       const db = await openAuthDb({ forCleanup: true });
       if (!db) {
+        shouldNotify = true;
         return;
       }
       const { applied } = await persistMetaIfNewerInDb(
@@ -353,7 +451,10 @@ export const defaultSessionStorage = {
         incomingMeta,
         "Failed to remove token from IndexedDB."
       );
-      shouldNotify = applied;
+      if (!applied) {
+        throw new Error("Failed to remove token from IndexedDB because a newer session token exists.");
+      }
+      shouldNotify = true;
     } finally {
       if (shouldNotify) {
         notifyChange(incomingMeta);
@@ -362,12 +463,25 @@ export const defaultSessionStorage = {
   },
   async removeTokenIfMatch(expectedToken) {
     if (!expectedToken) return false;
-    const db = await openAuthDb({ forCleanup: true });
+    const inMemoryEntry = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
+    const isConfirmedMemoryOnly =
+      !everOpenedIndexedDb &&
+      !transientOpenTimeout &&
+      inMemoryEntry.memoryOnly &&
+      inMemoryEntry.token === expectedToken;
+
+    const db = await openAuthDb({
+      forCleanup: true,
+      allowMemoryFallback: isConfirmedMemoryOnly,
+    });
     if (!db) {
+      if (!isConfirmedMemoryOnly && typeof indexedDB !== "undefined") {
+        throw new Error("Failed to open IndexedDB for conditional token removal.");
+      }
       const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
       if (!loggedOutOverride && current.token === expectedToken) {
         const nextMeta = createNextWriteMeta(null, current.meta);
-        const applied = applyWinningMetaInMemory(nextMeta);
+        const applied = applyWinningMetaInMemory(nextMeta, { memoryOnly: true });
         if (applied) {
           notifyChange(nextMeta);
         }

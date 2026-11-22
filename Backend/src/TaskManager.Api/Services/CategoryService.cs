@@ -17,12 +17,20 @@ public interface ICategoryService
     Task DeleteAsync(int id, Guid actingAdminId);
 }
 
-public class CategoryService(
-    AppDbContext db,
-    ILogger<CategoryService> log) : ICategoryService
+public class CategoryService : ICategoryService
 {
     private const string CategoryNotFoundMessage = "Category was not found.";
     private const string CategoryInUseMessage = "Cannot delete a category that is referenced by existing tasks.";
+    private readonly AppDbContext db;
+    private readonly ILogger<CategoryService> log;
+
+    public CategoryService(AppDbContext db, ILogger<CategoryService> log)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(log);
+        this.db = db;
+        this.log = log;
+    }
 
     public async Task<IReadOnlyList<CategoryDto>> GetAllAsync()
     {

@@ -6,9 +6,15 @@ using TaskManager.Tests.Helpers;
 
 namespace TaskManager.Tests.Services;
 
-public class JwtTokenServiceTests
+public class JwtTokenServiceTests : IAsyncLifetime
 {
-    private static readonly JwtOptions Options = new()
+    private static readonly Guid TestUserId = Guid.NewGuid();
+
+    public Task InitializeAsync() => TestEnv.EnsureLoadedAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    private static JwtOptions Options => new()
     {
         Issuer = TestEnv.JwtIssuer,
         Audience = TestEnv.JwtAudience,
@@ -16,9 +22,9 @@ public class JwtTokenServiceTests
         ExpiryMinutes = TestEnv.JwtExpiryMinutes
     };
 
-    private static readonly ApplicationUser User = new()
+    private static ApplicationUser User => new()
     {
-        Id = Guid.NewGuid(),
+        Id = TestUserId,
         Email = TestEnv.UserEmail,
         FullName = TestEnv.UserName
     };

@@ -1,5 +1,11 @@
 import axios from "axios";
-import { getActiveSessionStorage } from "../auth/tokenStorage";
+import {
+  getActiveAccountIdentity,
+  getActiveSessionRevision,
+  getActiveSessionStorage,
+  getTokenAccountIdentity,
+  hasActiveSessionSnapshot,
+} from "../auth/tokenStorage";
 
 const client = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
@@ -13,13 +19,44 @@ const isPublicAuthRequest = (config) => {
   return method === "post" && PUBLIC_PATHS.some((p) => url === p || url.endsWith(p));
 };
 
+function createSessionChangedError() {
+  const err = new Error("Request aborted because the active account session changed.");
+  err.code = "ERR_CANCELED";
+  err.name = "CanceledError";
+  return err;
+}
+
 client.interceptors.request.use(async (config) => {
   if (isPublicAuthRequest(config)) {
     config._requestToken = null;
     return config;
   }
+  const hadSnapshotAtStart = hasActiveSessionSnapshot();
+  const expectedIdentity =
+    config._expectedAccountIdentity !== undefined
+      ? config._expectedAccountIdentity
+      : getActiveAccountIdentity();
+  const startingRevision = getActiveSessionRevision();
+
   const token = await getActiveSessionStorage().getToken();
+  const tokenIdentity = getTokenAccountIdentity(token);
+
+  const sessionChangedSinceStart =
+    hadSnapshotAtStart || config._expectedAccountIdentity !== undefined
+      ? tokenIdentity !== expectedIdentity
+      : getActiveSessionRevision() !== startingRevision &&
+        getActiveAccountIdentity() !== tokenIdentity;
+
+  if (sessionChangedSinceStart) {
+    config._requestToken = null;
+    if (config.headers) {
+      delete config.headers.Authorization;
+    }
+    return Promise.reject(createSessionChangedError());
+  }
+
   config._requestToken = token;
+  config._requestAccountIdentity = tokenIdentity;
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });

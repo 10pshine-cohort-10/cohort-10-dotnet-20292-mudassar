@@ -108,8 +108,18 @@ public static class SeedData
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
             return;
 
-        if (await users.FindByEmailAsync(email) is not null)
+        var existingAccount = await users.FindByEmailAsync(email);
+        if (existingAccount is not null)
+        {
+            if (string.Equals(role, Roles.Admin, StringComparison.Ordinal)
+                && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
+            {
+                log.LogWarning(
+                    "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
+                    existingAccount.Id, Roles.Admin);
+            }
             return;
+        }
 
         var account = new ApplicationUser
         {

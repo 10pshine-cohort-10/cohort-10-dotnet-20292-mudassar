@@ -17,12 +17,24 @@ public interface IUserService
     Task SetActiveAsync(Guid targetUserId, bool isActive, Guid actingAdminId);
 }
 
-public class UserService(
-    UserManager<ApplicationUser> users,
-    ILogger<UserService> log,
-    AppDbContext? db = null) : IUserService
+public class UserService : IUserService
 {
     private static readonly SemaphoreSlim AdminStateLock = new(1, 1);
+    private readonly UserManager<ApplicationUser> users;
+    private readonly ILogger<UserService> log;
+    private readonly AppDbContext? db;
+
+    public UserService(
+        UserManager<ApplicationUser> users,
+        ILogger<UserService> log,
+        AppDbContext? db = null)
+    {
+        ArgumentNullException.ThrowIfNull(users);
+        ArgumentNullException.ThrowIfNull(log);
+        this.users = users;
+        this.log = log;
+        this.db = db;
+    }
     public async Task<IReadOnlyList<UserDto>> GetAllAsync(string? search = null, bool? activeOnly = null)
     {
         var query = users.Users.AsQueryable();

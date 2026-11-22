@@ -7,6 +7,7 @@ public static class ProblemWriter
 {
     public static Task WriteAsync(HttpContext http, int status, string title)
     {
+        ArgumentNullException.ThrowIfNull(http);
         http.Response.StatusCode = status;
         var problem = new ProblemDetails
         {

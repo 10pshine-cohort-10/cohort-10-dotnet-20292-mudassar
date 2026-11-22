@@ -10,8 +10,15 @@ namespace TaskManager.Api.Controllers;
 [Route("api/tasks")]
 [Produces("application/json")]
 [Authorize]
-public class TasksController(ITaskService tasks) : ControllerBase
+public class TasksController : ControllerBase
 {
+    private readonly ITaskService tasks;
+
+    public TasksController(ITaskService tasks)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        this.tasks = tasks;
+    }
     [HttpGet]
     [ProducesResponseType<PagedResult<TaskDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]

@@ -87,5 +87,22 @@ public class ControllersUnitTests
         Assert.IsType<NoContentResult>(deleteRes);
         categoryService.Verify(s => s.DeleteAsync(7, adminId), Times.Once);
     }
+
+    [Fact]
+    public void Controllers_NullDependencies_ThrowArgumentNullException()
+    {
+        Assert.Throws<ArgumentNullException>(() =>
+            new AuthController(null!, NullLogger<AuthController>.Instance));
+        Assert.Throws<ArgumentNullException>(() =>
+            new AuthController(Mock.Of<IAuthService>(), null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new CategoriesController(null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new DashboardController(null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new TasksController(null!));
+        Assert.Throws<ArgumentNullException>(() =>
+            new UsersController(null!));
+    }
 }
 

@@ -10,8 +10,15 @@ namespace TaskManager.Api.Controllers;
 [Route("api/users")]
 [Produces("application/json")]
 [Authorize]
-public class UsersController(IUserService users) : ControllerBase
+public class UsersController : ControllerBase
 {
+    private readonly IUserService users;
+
+    public UsersController(IUserService users)
+    {
+        ArgumentNullException.ThrowIfNull(users);
+        this.users = users;
+    }
     [HttpGet, Authorize(Policy = AuthExtensions.AdminOnlyPolicy)]
     [ProducesResponseType<IReadOnlyList<UserDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
