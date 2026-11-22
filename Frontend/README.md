@@ -35,7 +35,9 @@ The Vite dev proxy connects to `https://localhost:5001` with TLS certificate ver
 
 ```powershell
 dotnet dev-certs https --trust
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aspnet\https" | Out-Null
 dotnet dev-certs https -ep "$env:USERPROFILE\.aspnet\https\dev-cert.pem" --format Pem --no-password
+icacls "$env:USERPROFILE\.aspnet\https\dev-cert.key" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
 $env:NODE_EXTRA_CA_CERTS = "$env:USERPROFILE\.aspnet\https\dev-cert.pem"
 npm run dev
 ```
@@ -44,7 +46,9 @@ Or on bash/macOS/Linux:
 
 ```bash
 dotnet dev-certs https --trust
+mkdir -p "$HOME/.aspnet/https" && chmod 700 "$HOME/.aspnet/https"
 dotnet dev-certs https -ep "$HOME/.aspnet/https/dev-cert.pem" --format Pem --no-password
+chmod 600 "$HOME/.aspnet/https/dev-cert.key"
 NODE_EXTRA_CA_CERTS="$HOME/.aspnet/https/dev-cert.pem" npm run dev
 ```
 

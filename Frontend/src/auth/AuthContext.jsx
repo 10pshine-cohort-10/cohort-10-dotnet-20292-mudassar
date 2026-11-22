@@ -37,7 +37,19 @@ async function readCapturedToken(storage) {
 
 async function removeSessionToken(storage, capturedToken) {
   if (capturedToken && typeof storage.removeTokenIfMatch === "function") {
-    await storage.removeTokenIfMatch(capturedToken);
+    const removed = await storage.removeTokenIfMatch(capturedToken);
+    if (removed) return;
+
+    const currentToken = await storage.getToken();
+    if (!currentToken || currentToken !== capturedToken) {
+      return;
+    }
+
+    await storage.removeToken();
+    const remainingToken = await storage.getToken();
+    if (remainingToken === capturedToken) {
+      throw new Error("Failed to clear active session token during logout.");
+    }
     return;
   }
   await storage.removeToken();

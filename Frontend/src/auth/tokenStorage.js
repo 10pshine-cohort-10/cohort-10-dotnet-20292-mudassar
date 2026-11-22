@@ -385,16 +385,18 @@ export const defaultSessionStorage = {
       getReq.onsuccess = () => {
         const current = extractStoredRecord(getReq.result);
         const hasInMemoryState = memoryFallback.has(TOKEN_KEY) || latestWriteMeta.revision > 0;
-        const inMemoryToken = hasInMemoryState
-          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token
-          : current.token;
-        if (
-          !loggedOutOverride &&
-          current.token === expectedToken &&
-          inMemoryToken === expectedToken
-        ) {
+        const inMemoryRecord = hasInMemoryState
+          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY))
+          : null;
+        const inMemoryWins = Boolean(
+          inMemoryRecord?.meta &&
+            (!current.meta || compareWriteMeta(inMemoryRecord.meta, current.meta) > 0)
+        );
+        const effectiveRecord = inMemoryWins ? inMemoryRecord : current;
+        const inMemoryMatches = !hasInMemoryState || inMemoryRecord.token === expectedToken;
+        if (!loggedOutOverride && effectiveRecord.token === expectedToken && inMemoryMatches) {
           matched = true;
-          nextMeta = createNextWriteMeta(null, current.meta);
+          nextMeta = createNextWriteMeta(null, effectiveRecord.meta);
           putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
         }
       };
