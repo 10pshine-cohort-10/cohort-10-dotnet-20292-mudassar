@@ -15,6 +15,8 @@ public record UserInfoDto(Guid Id, string FullName, string Email, IList<string> 
 
 public record AuthResponse(string Token, DateTime ExpiresAt, UserInfoDto User);
 
+public record RegisterResponse(string Message);
+
 public record UpdateProfileDto(
     [Required, StringLength(100, MinimumLength = 2)] string FullName);
 

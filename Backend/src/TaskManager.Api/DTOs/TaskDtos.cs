@@ -19,7 +19,7 @@ public record UpdateTaskDto(
     DateTime? DueDate = null,
     int? CategoryId = null,
     Guid? AssignedToId = null,
-    string? RowVersion = null);
+    [Required] string? RowVersion = null);
 
 public record UpdateTaskStatusDto(
     [Required, EnumDataType(typeof(TaskItemStatus))] TaskItemStatus? Status);

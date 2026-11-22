@@ -27,11 +27,19 @@ public interface ITaskService
     Task DeleteAsync(int id, Guid userId, bool isAdmin);
 }
 
-public class TaskService(
-    AppDbContext db,
-    ILogger<TaskService> log) : ITaskService
+public class TaskService : ITaskService
 {
     private const string TaskNotFoundMessage = "Task was not found.";
+    private readonly AppDbContext db;
+    private readonly ILogger<TaskService> log;
+
+    public TaskService(AppDbContext db, ILogger<TaskService> log)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(log);
+        this.db = db;
+        this.log = log;
+    }
 
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
     [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
@@ -166,23 +174,23 @@ public class TaskService(
         ValidatePriority(dto.Priority);
         await ValidateReferencesAsync(dto.CategoryId, dto.AssignedToId);
 
-        if (!string.IsNullOrWhiteSpace(dto.RowVersion))
+        if (string.IsNullOrWhiteSpace(dto.RowVersion))
+            throw new AppValidationException("RowVersion is required to update a task.");
+
+        byte[] clientVersion;
+        try
         {
-            byte[] clientVersion;
-            try
-            {
-                clientVersion = Convert.FromBase64String(dto.RowVersion);
-            }
-            catch (FormatException)
-            {
-                throw new AppValidationException("Invalid RowVersion format.");
-            }
-
-            if (task.RowVersion is { Length: > 0 } && !task.RowVersion.SequenceEqual(clientVersion))
-                throw new ConflictException("The task was modified by another user. Please reload and try again.");
-
-            db.Entry(task).Property(t => t.RowVersion).OriginalValue = clientVersion;
+            clientVersion = Convert.FromBase64String(dto.RowVersion);
         }
+        catch (FormatException)
+        {
+            throw new AppValidationException("Invalid RowVersion format.");
+        }
+
+        if (task.RowVersion is { Length: > 0 } && !task.RowVersion.SequenceEqual(clientVersion))
+            throw new ConflictException("The task was modified by another user. Please reload and try again.");
+
+        db.Entry(task).Property(t => t.RowVersion).OriginalValue = clientVersion;
 
         var oldStatus = task.Status;
 

@@ -13,13 +13,13 @@ namespace TaskManager.Api.Controllers;
 public class AuthController(IAuthService auth, ILogger<AuthController> log) : ControllerBase
 {
     [HttpPost("register"), AllowAnonymous, EnableRateLimiting(AuthExtensions.AuthRateLimitPolicy)]
-    [ProducesResponseType<UserInfoDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType<RegisterResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<UserInfoDto>> Register(RegisterDto dto)
+    public async Task<ActionResult<RegisterResponse>> Register(RegisterDto dto)
     {
-        var user = await auth.RegisterAsync(dto);
-        return CreatedAtAction(nameof(Me), null, user);
+        await auth.RegisterAsync(dto);
+        return Accepted(new RegisterResponse(
+            "If the provided details are valid, registration has been accepted. You can now sign in."));
     }
 
     [HttpPost("login"), AllowAnonymous, EnableRateLimiting(AuthExtensions.AuthRateLimitPolicy)]

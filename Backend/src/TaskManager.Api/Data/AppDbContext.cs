@@ -110,6 +110,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                 entry.Property(t => t.IsDeleted).IsModified = true;
                 entry.Property(t => t.DeletedAt).IsModified = true;
                 entry.Property(t => t.UpdatedAt).IsModified = true;
+                if (!Database.IsSqlServer())
+                {
+                    entry.Entity.RowVersion = Guid.NewGuid().ToByteArray()[..8];
+                    entry.Property(t => t.RowVersion).IsModified = true;
+                }
                 if (entry.Entity.Id != 0)
                 {
                     softDeletedTaskIds.Add(entry.Entity.Id);
@@ -128,6 +133,11 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                 entry.Property(t => t.IsDeleted).IsModified = true;
                 entry.Property(t => t.DeletedAt).IsModified = true;
                 entry.Property(t => t.UpdatedAt).IsModified = true;
+                if (!Database.IsSqlServer())
+                {
+                    entry.Entity.RowVersion = Guid.NewGuid().ToByteArray()[..8];
+                    entry.Property(t => t.RowVersion).IsModified = true;
+                }
 
                 if (entry.Entity.Id != 0)
                 {

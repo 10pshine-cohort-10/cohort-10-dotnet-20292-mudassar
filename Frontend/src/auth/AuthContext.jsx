@@ -27,6 +27,22 @@ async function tryClearSuppressedToken(storage) {
   }
 }
 
+async function readCapturedToken(storage) {
+  try {
+    return await storage.getToken();
+  } catch {
+    return null;
+  }
+}
+
+async function removeSessionToken(storage, capturedToken) {
+  if (capturedToken && typeof storage.removeTokenIfMatch === "function") {
+    await storage.removeTokenIfMatch(capturedToken);
+    return;
+  }
+  await storage.removeToken();
+}
+
 async function reconcileFailedAuthToken(storage, failedToken) {
   let removed = false;
   if (failedToken && typeof storage.removeTokenIfMatch === "function") {
@@ -52,7 +68,8 @@ async function reconcileFailedAuthToken(storage, failedToken) {
   return Boolean(currentToken && currentToken !== failedToken);
 }
 
-export function AuthProvider({ children, storage = defaultSessionStorage }) {
+export function AuthProvider({ children, storage: storageProp }) {
+  const storage = storageProp ?? defaultSessionStorage;
   const [user, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [restoreError, setRestoreError] = useState("");
@@ -198,6 +215,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     logoutInFlightRef.current = true;
     const startingVersion = sessionVersionRef.current;
+    const capturedToken = await readCapturedToken(storage);
     let incompleteLogoutError = null;
 
     try {
@@ -208,20 +226,28 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       logoutInFlightRef.current = false;
       // Only clear session state if no newer login occurred while logout was in flight.
       if (sessionVersionRef.current === startingVersion) {
-        sessionVersionRef.current += 1;
+        const logoutVersion = ++sessionVersionRef.current;
         suppressStoredTokenRef.current = true;
         clearPageCache();
         setRestoreError("");
-        setUserState(null);
-        setLoading(false);
+        setLoading(true);
         try {
-          await storage.removeToken();
-          suppressStoredTokenRef.current = false;
+          await removeSessionToken(storage, capturedToken);
+          if (sessionVersionRef.current === logoutVersion) {
+            suppressStoredTokenRef.current = false;
+            setRestoreError("");
+            setUserState(null);
+            setLoading(false);
+          }
         } catch (err) {
           // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
           // and surface the incomplete sign-out because server logout is stateless.
           console.error("Failed to remove token from session storage during logout:", err);
-          setRestoreError(INCOMPLETE_LOGOUT_ERROR);
+          if (sessionVersionRef.current === logoutVersion) {
+            setUserState(null);
+            setRestoreError(INCOMPLETE_LOGOUT_ERROR);
+            setLoading(false);
+          }
           incompleteLogoutError = err;
         }
       }

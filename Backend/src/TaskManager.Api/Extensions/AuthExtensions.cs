@@ -98,6 +98,10 @@ public static class AuthExtensions
                     OnChallenge = async ctx =>                     // 401 -> ProblemDetails
                     {
                         ctx.HandleResponse();
+                        if (!ctx.Response.HasStarted && !ctx.Response.Headers.ContainsKey("WWW-Authenticate"))
+                        {
+                            ctx.Response.Headers.WWWAuthenticate = "Bearer";
+                        }
                         await ProblemWriter.WriteAsync(ctx.HttpContext, StatusCodes.Status401Unauthorized,
                             "Missing, invalid or expired token.");
                     },

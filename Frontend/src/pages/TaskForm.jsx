@@ -10,13 +10,7 @@ import ErrorAlert from "../components/ErrorAlert";
 import Field from "../components/Field";
 
 const toDateInput = (iso) => (iso ? String(iso).slice(0, 10) : "");
-const todayStr = () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+const utcTodayStr = () => new Date().toISOString().slice(0, 10);
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
 
@@ -163,7 +157,7 @@ export default function TaskForm() {
     if (trimmed.length < 2) errs.title = "Title must be at least 2 characters.";
     else if (trimmed.length > 200) errs.title = "Title must not exceed 200 characters.";
 
-    if (!isEdit && dueDate && dueDate < todayStr()) {
+    if (!isEdit && dueDate && dueDate < utcTodayStr()) {
       errs.dueDate = "Due date cannot be in the past.";
     }
     setFieldErrors(errs);
@@ -361,7 +355,7 @@ export default function TaskForm() {
               id="task-duedate"
               label="Due Date"
               type="date"
-              min={isEdit ? undefined : todayStr()}
+              min={isEdit ? undefined : utcTodayStr()}
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               error={fieldErrors.dueDate}
