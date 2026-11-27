@@ -39,6 +39,7 @@ export default function Profile() {
       })
       .catch((err) => {
         if (
+          hasInteractedRef.current ||
           controller.signal.aborted ||
           getSessionVersion() !== sessionAtStart ||
           err?.code === "ERR_CANCELED" ||

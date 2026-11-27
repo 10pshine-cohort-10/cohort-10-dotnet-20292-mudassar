@@ -18,6 +18,20 @@ const todayStr = () => {
 
 const toArray = (value) => (Array.isArray(value) ? value : []);
 
+const SKIPPED_LOOKUP = { attempted: false, ok: true, value: null };
+
+const settleLookup = (promise) =>
+  promise.then(
+    (value) => ({ attempted: true, ok: true, value }),
+    (reason) => ({ attempted: true, ok: false, reason })
+  );
+
+const getFirstLookupError = (catsOutcome, usersOutcome) => {
+  if (!catsOutcome.ok) return getErrorMessage(catsOutcome.reason);
+  if (!usersOutcome.ok) return getErrorMessage(usersOutcome.reason);
+  return "";
+};
+
 const extractTaskFields = (taskRes) => ({
   title: taskRes.title || "",
   description: taskRes.description || "",
@@ -49,25 +63,66 @@ export default function TaskForm() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [lookupError, setLookupError] = useState("");
+  const [retryingLookups, setRetryingLookups] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
 
   const requestGenRef = useRef(0);
   const saveGenRef = useRef(0);
+  const lookupGenRef = useRef(0);
+  const failedLookupsRef = useRef({ categories: false, users: false });
+
+  const retryLookups = useCallback(async () => {
+    const gen = ++lookupGenRef.current;
+    const { categories: needCategories, users: needUsers } = failedLookupsRef.current;
+    const retryBoth = !needCategories && !needUsers;
+
+    setRetryingLookups(true);
+    setLookupError("");
+
+    const [catsOutcome, usersOutcome] = await Promise.all([
+      needCategories || retryBoth ? settleLookup(getCategories()) : Promise.resolve(SKIPPED_LOOKUP),
+      needUsers || retryBoth ? settleLookup(getUserLookup()) : Promise.resolve(SKIPPED_LOOKUP),
+    ]);
+
+    if (lookupGenRef.current !== gen) return;
+
+    if (catsOutcome.attempted && catsOutcome.ok) setCategories(toArray(catsOutcome.value));
+    if (usersOutcome.attempted && usersOutcome.ok) setUsers(toArray(usersOutcome.value));
+
+    failedLookupsRef.current = {
+      categories: catsOutcome.attempted ? !catsOutcome.ok : needCategories,
+      users: usersOutcome.attempted ? !usersOutcome.ok : needUsers,
+    };
+    setLookupError(getFirstLookupError(catsOutcome, usersOutcome));
+    setRetryingLookups(false);
+  }, []);
 
   const loadForm = useCallback(async () => {
     const gen = ++requestGenRef.current;
+    lookupGenRef.current += 1;
+    saveGenRef.current += 1;
+    setSaving(false);
+    setRetryingLookups(false);
     setLoading(true);
     setLoadFailed(false);
     setError("");
+    setLookupError("");
     try {
-      const [catsRes, usersRes, taskRes] = await Promise.all([
-        getCategories().catch(() => []),
-        getUserLookup().catch(() => []),
+      const [catsOutcome, usersOutcome, taskRes] = await Promise.all([
+        settleLookup(getCategories()),
+        settleLookup(getUserLookup()),
         isEdit ? getTaskById(id) : Promise.resolve(null),
       ]);
       if (requestGenRef.current !== gen) return;
-      setCategories(toArray(catsRes));
-      setUsers(toArray(usersRes));
+
+      setCategories(catsOutcome.ok ? toArray(catsOutcome.value) : []);
+      setUsers(usersOutcome.ok ? toArray(usersOutcome.value) : []);
+      failedLookupsRef.current = {
+        categories: !catsOutcome.ok,
+        users: !usersOutcome.ok,
+      };
+      setLookupError(getFirstLookupError(catsOutcome, usersOutcome));
 
       if (taskRes) {
         const fields = extractTaskFields(taskRes);
@@ -95,6 +150,7 @@ export default function TaskForm() {
     return () => {
       requestGenRef.current += 1;
       saveGenRef.current += 1;
+      lookupGenRef.current += 1;
     };
   }, [loadForm]);
 
@@ -192,6 +248,21 @@ export default function TaskForm() {
 
       <div className="form-card">
         <ErrorAlert message={error} onClose={() => setError("")} />
+        {lookupError && (
+          <div className="alert error" role="alert">
+            <span>{lookupError}</span>
+            <div className="row-actions">
+              <button
+                type="button"
+                className="retry"
+                disabled={retryingLookups}
+                onClick={() => void retryLookups()}
+              >
+                {retryingLookups ? "Retrying..." : "Retry lookups"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} noValidate>
           <Field

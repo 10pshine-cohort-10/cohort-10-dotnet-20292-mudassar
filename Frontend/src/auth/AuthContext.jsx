@@ -18,6 +18,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
 
   const sessionVersionRef = useRef(0);
   const logoutInFlightRef = useRef(false);
+  const suppressStoredTokenRef = useRef(false);
 
   const getSessionVersion = useCallback(() => sessionVersionRef.current, []);
 
@@ -39,6 +40,19 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setRestoreError("");
 
     try {
+      if (suppressStoredTokenRef.current) {
+        try {
+          await storage.removeToken();
+          suppressStoredTokenRef.current = false;
+        } catch {
+          /* keep suppressing stale stored credentials until removal succeeds or a new login occurs */
+        }
+        if (sessionVersionRef.current !== version) return;
+        setUserState(null);
+        setRestoreError("");
+        return;
+      }
+
       const token = await storage.getToken();
       if (sessionVersionRef.current !== version) return;
 
@@ -78,21 +92,25 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     void restoreSession();
 
-    const applyCrossTabTokenChange = () => {
+    const applyCrossTabTokenChange = (nextValue) => {
       sessionVersionRef.current += 1;
       logoutInFlightRef.current = false;
+      if (nextValue) {
+        suppressStoredTokenRef.current = false;
+      }
       clearPageCache();
+      setUserState(null);
       void restoreSession();
     };
 
     const handleStorage = (event) => {
       if (event.storageArea && event.storageArea !== window.localStorage) return;
       if (event.key !== null && event.key !== "token") return;
-      applyCrossTabTokenChange();
+      applyCrossTabTokenChange(event.newValue ?? null);
     };
 
-    const unsubscribeChannel = subscribeTokenChanges(() => {
-      applyCrossTabTokenChange();
+    const unsubscribeChannel = subscribeTokenChanges((evt) => {
+      applyCrossTabTokenChange(evt?.newValue ?? null);
     });
 
     window.addEventListener("storage", handleStorage);
@@ -109,18 +127,29 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     sessionVersionRef.current += 1;
     const loginVersion = sessionVersionRef.current;
     logoutInFlightRef.current = false;
+    let superseded = false;
     try {
-      await storage.setToken(data.token);
+      const applied = await storage.setToken(data.token);
+      if (applied === false) {
+        superseded = true;
+        if (sessionVersionRef.current === loginVersion) {
+          suppressStoredTokenRef.current = false;
+          setUserState(null);
+          await restoreSession();
+        }
+        return;
+      }
       if (sessionVersionRef.current === loginVersion) {
+        suppressStoredTokenRef.current = false;
         setRestoreError("");
         setUserState(data.user);
       }
     } finally {
-      if (sessionVersionRef.current === loginVersion) {
+      if (!superseded && sessionVersionRef.current === loginVersion) {
         setLoading(false);
       }
     }
-  }, [storage]);
+  }, [restoreSession, storage]);
 
   const logout = useCallback(async () => {
     if (logoutInFlightRef.current) return;
@@ -137,13 +166,18 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       // Only clear session state if no newer login occurred while logout was in flight.
       if (sessionVersionRef.current === startingVersion) {
         sessionVersionRef.current += 1;
+        suppressStoredTokenRef.current = true;
         clearPageCache();
         setRestoreError("");
         setUserState(null);
+        setLoading(false);
         try {
           await storage.removeToken();
-        } catch {
-          /* best-effort removal so logout always completes */
+          suppressStoredTokenRef.current = false;
+        } catch (err) {
+          // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
+          // and report the storage removal failure without leaving the user logged in.
+          console.error("Failed to remove token from session storage during logout:", err);
         }
       }
     }

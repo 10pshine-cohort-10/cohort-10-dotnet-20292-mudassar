@@ -21,12 +21,23 @@ client.interceptors.response.use(
     const isPublic = PUBLIC_PATHS.some((p) => url.includes(p));
     const requestToken = error.config?._requestToken;
     const storage = getActiveSessionStorage();
-    const currentToken = await storage.getToken();
     // A wrong password also returns 401: keep the page so the message stays visible.
-    // Only clear credentials if the failing request belonged to the currently active session.
-    if (error.response?.status === 401 && !isPublic && requestToken && requestToken === currentToken) {
-      await storage.removeToken();
-      window.location.href = "/login";
+    // Atomically compare-and-delete so we only clear credentials and redirect if the failing
+    // request's token still matches the currently stored session token.
+    if (error.response?.status === 401 && !isPublic && requestToken) {
+      let removed = false;
+      if (typeof storage.removeTokenIfMatch === "function") {
+        removed = await storage.removeTokenIfMatch(requestToken);
+      } else {
+        const currentToken = await storage.getToken();
+        if (currentToken === requestToken) {
+          await storage.removeToken();
+          removed = true;
+        }
+      }
+      if (removed) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   }

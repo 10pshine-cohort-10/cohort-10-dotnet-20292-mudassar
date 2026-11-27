@@ -3,7 +3,13 @@ import { useAuth } from "./AuthContext";
 
 export default function ProtectedRoute({ adminOnly = false }) {
   const { user, loading, restoreError, retryRestore, logout, isAdmin } = useAuth();
-  if (loading) return <p style={{ padding: 24 }}>Loading...</p>;
+  if (loading) {
+    return (
+      <p role="status" aria-live="polite" style={{ padding: 24 }}>
+        Loading...
+      </p>
+    );
+  }
   if (!user && restoreError) {
     return (
       <div className="app">
