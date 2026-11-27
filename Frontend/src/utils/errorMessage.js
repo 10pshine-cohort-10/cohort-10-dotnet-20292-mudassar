@@ -1,5 +1,8 @@
 export function getErrorMessage(error) {
-  if (!error?.response) return "Cannot reach the server. Please try again.";
+  if (!error?.response) {
+    if (error?.retryable && error?.message) return error.message;
+    return "Cannot reach the server. Please try again.";
+  }
   const data = error.response.data;
   if (typeof data === "string" && data.trim()) return data;
   if (data?.errors && typeof data.errors === "object") {

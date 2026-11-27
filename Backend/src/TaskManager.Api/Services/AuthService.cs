@@ -12,8 +12,8 @@ public interface IAuthService
 {
     Task<UserInfoDto> RegisterAsync(RegisterDto dto);
     Task<AuthResponse> LoginAsync(LoginDto dto);
-    Task<UserInfoDto> GetCurrentAsync(Guid userId);
-    Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto);
+    Task<UserInfoDto> GetCurrentAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto, CancellationToken cancellationToken = default);
 }
 
 public class AuthService : IAuthService
@@ -182,6 +182,7 @@ public class AuthService : IAuthService
 
         if (await users.IsLockedOutAsync(user))
         {
+            VerifyDummyPassword(dto.Password);                     // comparable verification work = no timing oracle
             log.LogWarning("Login attempt for locked-out user {UserId}", user.Id);
             throw new UnauthorizedException(InvalidCredentials);   // same message = no lockout enumeration
         }
@@ -200,11 +201,36 @@ public class AuthService : IAuthService
             throw new UnauthorizedException(InvalidCredentials);
         }
 
-        var roles = await users.GetRolesAsync(user);
-        var (token, expires) = jwt.Create(user, roles);
+        // Re-check persisted state right before issuing the token so a lockout/deactivation recorded by a
+        // concurrent request after our initial snapshot is honored at issuance time.
+        var current = await ReloadUserAsync(user);
+        if (current is null || !current.IsActive || await users.IsLockedOutAsync(current))
+        {
+            log.LogWarning("Failed login for user {UserId}: account locked or inactive at token issuance", user.Id);
+            throw new UnauthorizedException(InvalidCredentials);
+        }
 
-        log.LogInformation("User {UserId} logged in with roles {Roles}", user.Id, roles);
-        return new AuthResponse(token, expires, new UserInfoDto(user.Id, user.FullName, user.Email!, roles));
+        var roles = await users.GetRolesAsync(current);
+        var (token, expires) = jwt.Create(current, roles);
+
+        log.LogInformation("User {UserId} logged in with roles {Roles}", current.Id, roles);
+        return new AuthResponse(token, expires, new UserInfoDto(current.Id, current.FullName, current.Email!, roles));
+    }
+
+    /// <summary>Reloads the user from the store, bypassing any stale tracked snapshot.</summary>
+    private async Task<ApplicationUser?> ReloadUserAsync(ApplicationUser user)
+    {
+        if (db is not null)
+        {
+            var entry = db.Entry(user);
+            if (entry.State != EntityState.Detached)
+            {
+                await entry.ReloadAsync();
+                return entry.State == EntityState.Detached ? null : user;
+            }
+        }
+
+        return await users.FindByIdAsync(user.Id.ToString());
     }
 
     private void VerifyDummyPassword(string password)
@@ -264,33 +290,42 @@ public class AuthService : IAuthService
         return false;
     }
 
-    public async Task<UserInfoDto> GetCurrentAsync(Guid userId)
+    public async Task<UserInfoDto> GetCurrentAsync(Guid userId, CancellationToken cancellationToken = default)
     {
-        var user = await users.FindByIdAsync(userId.ToString());
+        var user = await FindUserByIdAsync(userId, cancellationToken);
         if (user is null)
         {
             log.LogWarning("Profile lookup failed: user {UserId} was not found", userId);
             throw new NotFoundException("User was not found.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        var roles = await users.GetRolesAsync(user);
+
         log.LogDebug("Fetched current profile for user {UserId}", userId);
-        return new UserInfoDto(user.Id, user.FullName, user.Email!, await users.GetRolesAsync(user));
+        return new UserInfoDto(user.Id, user.FullName, user.Email!, roles);
     }
 
-    public async Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto)
+    public async Task<UserInfoDto> UpdateProfileAsync(
+        Guid userId,
+        UpdateProfileDto dto,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(dto);
 
-        var user = await users.FindByIdAsync(userId.ToString());
+        var trimmedName = dto.FullName?.Trim() ?? string.Empty;
+        if (trimmedName.Length < 2 || trimmedName.Length > 100)
+            throw new AppValidationException("Full name must be between 2 and 100 characters.");
+
+        var user = await FindUserByIdAsync(userId, cancellationToken);
         if (user is null)
         {
             log.LogWarning("Profile update failed: user {UserId} was not found", userId);
             throw new NotFoundException("User was not found.");
         }
 
-        var trimmedName = dto.FullName?.Trim() ?? string.Empty;
-        if (trimmedName.Length < 2 || trimmedName.Length > 100)
-            throw new AppValidationException("Full name must be between 2 and 100 characters.");
+        // Last safe point to stop: after this the write is committed and must be reported back.
+        cancellationToken.ThrowIfCancellationRequested();
 
         user.FullName = trimmedName;
         var result = await users.UpdateAsync(user);
@@ -299,6 +334,19 @@ public class AuthService : IAuthService
 
         log.LogInformation("User {UserId} updated profile full name", userId);
         return new UserInfoDto(user.Id, user.FullName, user.Email!, await users.GetRolesAsync(user));
+    }
+
+    /// <summary>
+    /// Uses the cancellable EF Core query when a relational/in-memory context is available
+    /// (UserManager lookups do not accept a CancellationToken).
+    /// </summary>
+    private async Task<ApplicationUser?> FindUserByIdAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (db is not null)
+            return await db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+
+        return await users.FindByIdAsync(userId.ToString());
     }
 }
 

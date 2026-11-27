@@ -34,12 +34,18 @@ if (-not (Get-Command dotnet-sonarscanner -ErrorAction SilentlyContinue)) {
 Write-Host "==> Starting SonarQube Scanner for .NET (C# Backend + Tests)..."
 dotnet sonarscanner begin `
     /k:"$ProjectKey" `
-    /n:"TaskFlow (.NET + React)" `
+    /n:"TaskFlow - Task Management System (.NET + React)" `
+    /v:"1.0.0" `
     /d:sonar.host.url="$SonarHostUrl" `
     /d:sonar.token="$SonarToken" `
-    /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/bin/**,**/obj/**,**/Data/Migrations/**" `
+    /d:sonar.sourceEncoding="UTF-8" `
+    /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/bin/**,**/obj/**,**/Data/Migrations/**,**/*.svg,**/*.css" `
+    /d:sonar.test.exclusions="**/bin/**,**/obj/**" `
+    /d:sonar.coverage.exclusions="**/Data/Migrations/**,**/Program.cs,Frontend/src/main.jsx" `
     /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" `
-    /d:sonar.javascript.file.suffixes=".js,.jsx"
+    /d:sonar.cs.vstest.reportsPaths="**/TestResults/**/*.trx" `
+    /d:sonar.javascript.file.suffixes=".js,.jsx" `
+    /d:sonar.javascript.environments="browser,es2022,node"
 if ($LASTEXITCODE -ne 0) { throw "dotnet sonarscanner begin failed (exit code $LASTEXITCODE)." }
 
 Write-Host "==> Building .NET Solution..."

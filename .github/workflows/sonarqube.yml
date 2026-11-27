@@ -53,13 +53,18 @@ jobs:
         run: |
           dotnet sonarscanner begin \
             /k:"cohort-10-dotnet-20292-mudassar" \
+            /n:"TaskFlow - Task Management System (.NET + React)" \
+            /v:"1.0.0" \
             /d:sonar.host.url="$SONAR_HOST_URL" \
             /d:sonar.token="$SONAR_TOKEN" \
-            /d:sonar.sources="Backend/src/TaskManager.Api,Frontend/src" \
-            /d:sonar.tests="Backend/tests/TaskManager.Tests" \
-            /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/bin/**,**/obj/**,**/Data/Migrations/**" \
+            /d:sonar.sourceEncoding="UTF-8" \
+            /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/bin/**,**/obj/**,**/Data/Migrations/**,**/*.svg,**/*.css" \
+            /d:sonar.test.exclusions="**/bin/**,**/obj/**" \
+            /d:sonar.coverage.exclusions="**/Data/Migrations/**,**/Program.cs,Frontend/src/main.jsx" \
             /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
-            /d:sonar.javascript.file.suffixes=".js,.jsx"
+            /d:sonar.cs.vstest.reportsPaths="**/TestResults/**/*.trx" \
+            /d:sonar.javascript.file.suffixes=".js,.jsx" \
+            /d:sonar.javascript.environments="browser,es2022,node"
           dotnet build Backend/TaskManager.sln -c Release --no-incremental
           dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
 

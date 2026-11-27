@@ -254,6 +254,7 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     } finally {
       sessionVersionRef.current += 1;
       await storage.removeToken();
+      setRestoreError("");
       setUser(null);
       setLoading(false);
     }

@@ -7,6 +7,7 @@ import {
   getTokenAccountIdentity,
   setActiveAccountIdentity,
   setActiveSessionStorage,
+  subscribeStorageRecovery,
   subscribeTokenChanges,
 } from "./tokenStorage";
 
@@ -35,30 +36,42 @@ async function tryClearSuppressedToken(storage) {
 
 async function readCapturedToken(storage) {
   try {
-    return await storage.getToken();
-  } catch {
-    return null;
+    const token = await storage.getToken();
+    return { ok: true, token: token ?? null };
+  } catch (error) {
+    return { ok: false, token: null, error };
   }
 }
 
-async function removeSessionToken(storage, capturedToken) {
-  if (capturedToken && typeof storage.removeTokenIfMatch === "function") {
-    const removed = await storage.removeTokenIfMatch(capturedToken);
-    if (removed) return;
-
-    const currentToken = await storage.getToken();
-    if (!currentToken || currentToken !== capturedToken) {
-      return;
-    }
-
-    await storage.removeToken();
-    const remainingToken = await storage.getToken();
-    if (remainingToken === capturedToken) {
-      throw new Error("Failed to clear active session token during logout.");
-    }
+async function removeSessionToken(storage, captured) {
+  if (!captured?.ok) {
+    throw captured?.error ?? new Error(INCOMPLETE_LOGOUT_ERROR);
+  }
+  if (!captured.token) {
+    return;
+  }
+  if (typeof storage.removeTokenIfMatch === "function") {
+    await storage.removeTokenIfMatch(captured.token);
     return;
   }
   await storage.removeToken();
+}
+
+async function resolveSupersededLoginOutcome(storage, isSuppressed) {
+  const captured = await readCapturedToken(storage);
+  if (isSuppressed || !captured.ok || !captured.token) {
+    return {
+      ok: false,
+      interrupted: true,
+      status: "interrupted",
+      message: INTERRUPTED_LOGIN_ERROR,
+    };
+  }
+  return {
+    ok: true,
+    interrupted: false,
+    status: "superseded",
+  };
 }
 
 async function reconcileFailedAuthToken(storage, failedToken) {
@@ -88,7 +101,7 @@ async function reconcileFailedAuthToken(storage, failedToken) {
 
 export function AuthProvider({ children, storage: storageProp }) {
   const storage = storageProp ?? defaultSessionStorage;
-  const [user, setUserState] = useState(null);
+  const [userState, setUserState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [restoreError, setRestoreError] = useState("");
 
@@ -109,6 +122,35 @@ export function AuthProvider({ children, storage: storageProp }) {
     });
   }, []);
 
+  const clearSuppressedSession = useCallback(async (version) => {
+    const cleared = await tryClearSuppressedToken(storage);
+    if (cleared) suppressStoredTokenRef.current = false;
+    if (sessionVersionRef.current !== version) return;
+    setActiveAccountIdentity(null);
+    setUserState(null);
+    setRestoreError(cleared ? "" : INCOMPLETE_LOGOUT_ERROR);
+  }, [storage]);
+
+  const handleRestoreFailure = useCallback(async (err, version, attemptedToken, retryRestoreFn) => {
+    if (!isAuthFailure(err)) {
+      // Keep the token on storage/network/5xx errors so the user can retry.
+      setRestoreError(getErrorMessage(err));
+      return;
+    }
+    const failedToken = err?.config?._requestToken ?? attemptedToken;
+    const hasNewerToken = await reconcileFailedAuthToken(storage, failedToken);
+    if (sessionVersionRef.current !== version) return;
+    if (hasNewerToken) {
+      sessionVersionRef.current += 1;
+      setUserState(null);
+      await retryRestoreFn();
+      return;
+    }
+    setActiveAccountIdentity(null);
+    setUserState(null);
+    setRestoreError("");
+  }, [storage]);
+
   const restoreSession = useCallback(async () => {
     setActiveSessionStorage(storage);
     const version = sessionVersionRef.current;
@@ -118,12 +160,7 @@ export function AuthProvider({ children, storage: storageProp }) {
     let attemptedToken = null;
     try {
       if (suppressStoredTokenRef.current) {
-        const cleared = await tryClearSuppressedToken(storage);
-        if (cleared) suppressStoredTokenRef.current = false;
-        if (sessionVersionRef.current !== version) return;
-        setActiveAccountIdentity(null);
-        setUserState(null);
-        setRestoreError(cleared ? "" : INCOMPLETE_LOGOUT_ERROR);
+        await clearSuppressedSession(version);
         return;
       }
 
@@ -145,29 +182,13 @@ export function AuthProvider({ children, storage: storageProp }) {
       setUserState(me);
     } catch (err) {
       if (sessionVersionRef.current !== version) return;
-      if (isAuthFailure(err)) {
-        const failedToken = err?.config?._requestToken ?? attemptedToken;
-        const hasNewerToken = await reconcileFailedAuthToken(storage, failedToken);
-        if (sessionVersionRef.current !== version) return;
-        if (hasNewerToken) {
-          sessionVersionRef.current += 1;
-          setUserState(null);
-          await restoreSession();
-          return;
-        }
-        setActiveAccountIdentity(null);
-        setUserState(null);
-        setRestoreError("");
-      } else {
-        // Keep the token on storage/network/5xx errors so the user can retry.
-        setRestoreError(getErrorMessage(err));
-      }
+      await handleRestoreFailure(err, version, attemptedToken, restoreSession);
     } finally {
       if (sessionVersionRef.current === version) {
         setLoading(false);
       }
     }
-  }, [storage]);
+  }, [clearSuppressedSession, handleRestoreFailure, storage]);
 
   useEffect(() => {
     setActiveSessionStorage(storage);
@@ -197,18 +218,34 @@ export function AuthProvider({ children, storage: storageProp }) {
       applyCrossTabTokenChange(evt?.newValue ?? null);
     });
 
+    const unsubscribeRecovery = subscribeStorageRecovery(() => {
+      if (!suppressStoredTokenRef.current) {
+        void restoreSession();
+      }
+    });
+
     window.addEventListener("storage", handleStorage);
     return () => {
       sessionVersionRef.current += 1;
       unsubscribeChannel();
+      unsubscribeRecovery();
       window.removeEventListener("storage", handleStorage);
     };
   }, [restoreSession, storage]);
 
   const login = useCallback(async (email, password) => {
     setActiveSessionStorage(storage);
+    const startingVersion = sessionVersionRef.current;
     clearPageCache();
     const data = await loginRequest(email, password);
+    if (sessionVersionRef.current !== startingVersion) {
+      return {
+        ok: false,
+        interrupted: true,
+        status: "interrupted",
+        message: INTERRUPTED_LOGIN_ERROR,
+      };
+    }
     sessionVersionRef.current += 1;
     const loginVersion = sessionVersionRef.current;
     logoutInFlightRef.current = false;
@@ -222,40 +259,14 @@ export function AuthProvider({ children, storage: storageProp }) {
           setUserState(null);
           await restoreSession();
         }
-        const activeTokenAfterSupersede = await readCapturedToken(storage);
-        if (suppressStoredTokenRef.current || !activeTokenAfterSupersede) {
-          return {
-            ok: false,
-            interrupted: true,
-            status: "interrupted",
-            message: INTERRUPTED_LOGIN_ERROR,
-          };
-        }
-        return {
-          ok: true,
-          interrupted: false,
-          status: "superseded",
-        };
+        return resolveSupersededLoginOutcome(storage, suppressStoredTokenRef.current);
       }
       if (sessionVersionRef.current !== loginVersion) {
         superseded = true;
-        const activeToken = await readCapturedToken(storage);
-        if (suppressStoredTokenRef.current || !activeToken) {
-          return {
-            ok: false,
-            interrupted: true,
-            status: "interrupted",
-            message: INTERRUPTED_LOGIN_ERROR,
-          };
-        }
-        return {
-          ok: true,
-          interrupted: false,
-          status: "superseded",
-        };
+        return resolveSupersededLoginOutcome(storage, suppressStoredTokenRef.current);
       }
       suppressStoredTokenRef.current = false;
-      setActiveAccountIdentity(data.user?.id ?? getTokenAccountIdentity(data.token));
+      setActiveAccountIdentity(resolveAccountIdentity(data.user, data.token));
       setRestoreError("");
       setUserState(data.user);
       return {
@@ -322,7 +333,7 @@ export function AuthProvider({ children, storage: storageProp }) {
 
   const value = useMemo(
     () => ({
-      user,
+      user: userState,
       setUser,
       getSessionVersion,
       loading,
@@ -330,9 +341,9 @@ export function AuthProvider({ children, storage: storageProp }) {
       retryRestore: restoreSession,
       login,
       logout,
-      isAdmin: !!user?.roles?.includes("Admin"),
+      isAdmin: !!userState?.roles?.includes("Admin"),
     }),
-    [user, setUser, getSessionVersion, loading, restoreError, restoreSession, login, logout]
+    [userState, setUser, getSessionVersion, loading, restoreError, restoreSession, login, logout]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

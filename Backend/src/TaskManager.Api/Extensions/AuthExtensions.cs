@@ -19,6 +19,7 @@ public static class AuthExtensions
 
     public static IServiceCollection AddAuth(this IServiceCollection services, IConfiguration config)
     {
+        ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(config);
 
         var jwt = config.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();

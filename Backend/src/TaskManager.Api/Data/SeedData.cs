@@ -108,13 +108,16 @@ public static class SeedData
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
             return;
 
+        var isAdminSeed = string.Equals(role, Roles.Admin, StringComparison.Ordinal);
+
         var existingAccount = await users.FindByEmailAsync(email);
         if (existingAccount is not null)
         {
-            if (string.Equals(role, Roles.Admin, StringComparison.Ordinal)
+            if (isAdminSeed
                 && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
             {
-                log.LogWarning(
+                // Report the conflict but never promote an existing non-admin (or inactive) account automatically.
+                log.LogError(
                     "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
                     existingAccount.Id, Roles.Admin);
             }
@@ -153,8 +156,11 @@ public static class SeedData
             if (tx is not null)
                 await tx.RollbackAsync();
 
-            log.LogWarning("Could not seed {Role} account: {Errors}",
-                role, string.Join(" ", createResult.Errors.Select(e => e.Description)));
+            var createErrors = string.Join(" ", createResult.Errors.Select(e => e.Description));
+            if (isAdminSeed)
+                throw new InvalidOperationException($"Could not seed the configured {role} account: {createErrors}");
+
+            log.LogWarning("Could not seed {Role} account: {Errors}", role, createErrors);
             return;
         }
 
@@ -166,8 +172,13 @@ public static class SeedData
             else
                 await users.DeleteAsync(account);
 
+            var roleErrors = string.Join(" ", roleResult.Errors.Select(e => e.Description));
+            if (isAdminSeed)
+                throw new InvalidOperationException(
+                    $"Could not assign the {role} role to the configured seed account: {roleErrors}");
+
             log.LogWarning("Could not assign {Role} role to seeded account {UserId}: {Errors}",
-                role, account.Id, string.Join(" ", roleResult.Errors.Select(e => e.Description)));
+                role, account.Id, roleErrors);
             return;
         }
 
