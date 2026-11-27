@@ -108,6 +108,7 @@ public sealed class SignalRTaskRealtimeNotifier : ITaskRealtimeNotifier
         string[] groupNames,
         CancellationToken cancellationToken)
     {
+        using var userLock = await connectionTracker.AcquireUserLockAsync(userId, cancellationToken);
         var connectionIds = connectionTracker.GetConnections(userId);
         foreach (var connectionId in connectionIds)
         {

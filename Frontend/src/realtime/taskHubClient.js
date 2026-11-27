@@ -155,8 +155,12 @@ async function ensureSharedConnection(userId) {
       await conn.stop().catch(() => {});
       return;
     }
+    const wasRetry = retryAttempt > 0;
     retryAttempt = 0;
     setConnectionState("connected");
+    if (wasRetry) {
+      notifyReconnectListeners();
+    }
   } catch {
     if (sharedConnection === conn) {
       sharedConnection = null;

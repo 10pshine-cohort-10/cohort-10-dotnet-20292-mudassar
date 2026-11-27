@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -229,6 +230,72 @@ public sealed class SignalRTaskRealtimeNotifierTests
         tracker.Remove(userId, "conn-1");
         tracker.Remove(userId, "conn-2");
         Assert.Empty(tracker.GetConnections(userId));
+    }
+
+    [Fact]
+    public async Task TaskHub_OnConnected_InactiveUserAbortsAndJoinsNoGroups_DemotedAdminSkipsAdminGroup()
+    {
+        var store = new Mock<IUserStore<ApplicationUser>>();
+        var userManager = new Mock<UserManager<ApplicationUser>>(
+            store.Object, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        var inactiveId = Guid.NewGuid();
+        userManager.Setup(m => m.FindByIdAsync(inactiveId.ToString()))
+            .ReturnsAsync(new ApplicationUser { Id = inactiveId, IsActive = false });
+
+        var tracker = new TaskHubConnectionTracker();
+        var inactiveGroups = new Mock<IGroupManager>();
+        var inactiveContext = new Mock<HubCallerContext>();
+        inactiveContext.SetupGet(c => c.ConnectionId).Returns("conn-inactive");
+        inactiveContext.SetupGet(c => c.ConnectionAborted).Returns(CancellationToken.None);
+        inactiveContext.SetupGet(c => c.User).Returns(new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, inactiveId.ToString()),
+            new Claim(ClaimTypes.Role, Roles.Admin)
+        ], "Jwt")));
+
+        using var inactiveHub = new TaskHub(tracker, userManager.Object)
+        {
+            Context = inactiveContext.Object,
+            Groups = inactiveGroups.Object
+        };
+        await inactiveHub.OnConnectedAsync();
+
+        inactiveContext.Verify(c => c.Abort(), Times.Once);
+        inactiveGroups.Verify(
+            g => g.AddToGroupAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        Assert.Empty(tracker.GetConnections(inactiveId));
+
+        var demotedId = Guid.NewGuid();
+        var demotedUser = new ApplicationUser { Id = demotedId, IsActive = true };
+        userManager.Setup(m => m.FindByIdAsync(demotedId.ToString())).ReturnsAsync(demotedUser);
+        userManager.Setup(m => m.IsInRoleAsync(demotedUser, Roles.Admin)).ReturnsAsync(false);
+
+        var demotedGroups = new Mock<IGroupManager>();
+        var demotedContext = new Mock<HubCallerContext>();
+        demotedContext.SetupGet(c => c.ConnectionId).Returns("conn-demoted");
+        demotedContext.SetupGet(c => c.ConnectionAborted).Returns(CancellationToken.None);
+        demotedContext.SetupGet(c => c.User).Returns(new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, demotedId.ToString()),
+            new Claim(ClaimTypes.Role, Roles.Admin)
+        ], "Jwt")));
+
+        using var demotedHub = new TaskHub(tracker, userManager.Object)
+        {
+            Context = demotedContext.Object,
+            Groups = demotedGroups.Object
+        };
+        await demotedHub.OnConnectedAsync();
+
+        demotedGroups.Verify(
+            g => g.AddToGroupAsync("conn-demoted", TaskHub.UserGroup(demotedId), It.IsAny<CancellationToken>()),
+            Times.Once);
+        demotedGroups.Verify(
+            g => g.AddToGroupAsync("conn-demoted", TaskHub.AdminsGroup, It.IsAny<CancellationToken>()),
+            Times.Never);
+        Assert.Single(tracker.GetConnections(demotedId));
     }
 }
 

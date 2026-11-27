@@ -99,11 +99,13 @@ try
 
     await app.RunAsync();
 }
+#pragma warning disable S2139 // Standard Serilog host pattern: log fatal startup/runtime failure and rethrow so the host exits non-zero.
 catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "TaskManager API host terminated unexpectedly");
     throw;
 }
+#pragma warning restore S2139
 finally
 {
     if (!isTesting)
@@ -115,6 +117,10 @@ finally
 
 public partial class Program
 {
+    protected Program()
+    {
+    }
+
     private static readonly Lock BootstrapLoggerLock = new();
     private static bool _bootstrapLoggerInitialized;
 

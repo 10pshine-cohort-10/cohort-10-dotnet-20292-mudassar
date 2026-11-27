@@ -39,8 +39,22 @@ const extractTaskFields = (taskRes) => ({
   rowVersion: taskRes.rowVersion || "",
 });
 
-const buildRetainedOption = (lookupOk, value, label) =>
-  !lookupOk && value ? { id: String(value), label } : null;
+const buildRetainedOption = (items, value, label) => {
+  const stringValue = String(value || "");
+  if (!stringValue) return null;
+  if (items.some((item) => String(item.id) === stringValue)) return null;
+  return { id: stringValue, label };
+};
+
+const applyLookupRetryResult = (outcome, selectedId, setItems, setRetained) => {
+  if (!outcome.attempted || !outcome.ok) return;
+  const nextItems = toArray(outcome.value);
+  setItems(nextItems);
+  const currentId = String(selectedId || "");
+  if (!currentId || nextItems.some((item) => String(item.id) === currentId)) {
+    setRetained(null);
+  }
+};
 
 function LookupSelectField({
   id,
@@ -50,14 +64,13 @@ function LookupSelectField({
   emptyLabel,
   items,
   getItemLabel,
-  lookupUnavailable,
   retainedOption,
   fallbackLabel,
 }) {
   const stringValue = String(value || "");
   const hasMatch =
     Boolean(stringValue) && items.some((item) => String(item.id) === stringValue);
-  const showTemporaryOption = Boolean(lookupUnavailable && stringValue && !hasMatch);
+  const showTemporaryOption = Boolean(stringValue && !hasMatch);
   const temporaryLabel =
     retainedOption?.id === stringValue ? retainedOption.label : fallbackLabel;
 
@@ -96,7 +109,6 @@ export default function TaskForm() {
   const [users, setUsers] = useState([]);
   const [retainedCategory, setRetainedCategory] = useState(null);
   const [retainedAssignee, setRetainedAssignee] = useState(null);
-  const [failedLookups, setFailedLookups] = useState({ categories: false, users: false });
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -109,6 +121,8 @@ export default function TaskForm() {
   const saveGenRef = useRef(0);
   const lookupGenRef = useRef(0);
   const failedLookupsRef = useRef({ categories: false, users: false });
+  const categoryIdRef = useRef(categoryId);
+  categoryIdRef.current = categoryId;
   const assignedToIdRef = useRef(assignedToId);
   assignedToIdRef.current = assignedToId;
 
@@ -127,25 +141,14 @@ export default function TaskForm() {
 
     if (lookupGenRef.current !== gen) return;
 
-    if (catsOutcome.attempted && catsOutcome.ok) {
-      setCategories(toArray(catsOutcome.value));
-      setRetainedCategory(null);
-    }
-    if (usersOutcome.attempted && usersOutcome.ok) {
-      const nextUsers = toArray(usersOutcome.value);
-      setUsers(nextUsers);
-      const currentAssigneeId = assignedToIdRef.current;
-      if (!currentAssigneeId || nextUsers.some((u) => String(u.id) === String(currentAssigneeId))) {
-        setRetainedAssignee(null);
-      }
-    }
+    applyLookupRetryResult(catsOutcome, categoryIdRef.current, setCategories, setRetainedCategory);
+    applyLookupRetryResult(usersOutcome, assignedToIdRef.current, setUsers, setRetainedAssignee);
 
     const nextFailedLookups = {
       categories: catsOutcome.attempted ? !catsOutcome.ok : needCategories,
       users: usersOutcome.attempted ? !usersOutcome.ok : needUsers,
     };
     failedLookupsRef.current = nextFailedLookups;
-    setFailedLookups(nextFailedLookups);
     setLookupError(getFirstLookupError(catsOutcome, usersOutcome));
     setRetryingLookups(false);
   }, []);
@@ -168,14 +171,14 @@ export default function TaskForm() {
       ]);
       if (requestGenRef.current !== gen) return;
 
-      setCategories(catsOutcome.ok ? toArray(catsOutcome.value) : []);
-      setUsers(usersOutcome.ok ? toArray(usersOutcome.value) : []);
-      const nextFailedLookups = {
+      const nextCategories = catsOutcome.ok ? toArray(catsOutcome.value) : [];
+      const nextUsers = usersOutcome.ok ? toArray(usersOutcome.value) : [];
+      setCategories(nextCategories);
+      setUsers(nextUsers);
+      failedLookupsRef.current = {
         categories: !catsOutcome.ok,
         users: !usersOutcome.ok,
       };
-      failedLookupsRef.current = nextFailedLookups;
-      setFailedLookups(nextFailedLookups);
       setLookupError(getFirstLookupError(catsOutcome, usersOutcome));
 
       if (taskRes) {
@@ -190,14 +193,14 @@ export default function TaskForm() {
         setRowVersion(fields.rowVersion);
         setRetainedCategory(
           buildRetainedOption(
-            catsOutcome.ok,
+            nextCategories,
             fields.categoryId,
             taskRes.categoryName || `Category #${fields.categoryId}`
           )
         );
         setRetainedAssignee(
           buildRetainedOption(
-            usersOutcome.ok,
+            nextUsers,
             fields.assignedToId,
             taskRes.assignedToName || "Current assignee"
           )
@@ -403,7 +406,6 @@ export default function TaskForm() {
               emptyLabel="Uncategorized"
               items={categories}
               getItemLabel={(c) => c.name}
-              lookupUnavailable={failedLookups.categories}
               retainedOption={retainedCategory}
               fallbackLabel={`Category #${categoryId}`}
             />
@@ -416,7 +418,6 @@ export default function TaskForm() {
               emptyLabel="Unassigned"
               items={users}
               getItemLabel={(u) => u.fullName}
-              lookupUnavailable={failedLookups.users}
               retainedOption={retainedAssignee}
               fallbackLabel="Current assignee"
             />
