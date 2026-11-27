@@ -82,7 +82,10 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
-    app.MapHub<TaskHub>(TaskHub.HubPath);
+    app.MapHub<TaskHub>(TaskHub.HubPath, options =>
+    {
+        options.CloseOnAuthenticationExpiration = true;
+    });
     app.MapGet("/health", (ILogger<Program> logger) =>
         {
             logger.LogDebug("Health check probe executed");

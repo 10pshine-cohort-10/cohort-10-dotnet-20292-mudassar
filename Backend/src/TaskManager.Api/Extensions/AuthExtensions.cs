@@ -136,6 +136,7 @@ public static class AuthExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ICategoryService, CategoryService>();
+        services.AddSingleton<ITaskHubConnectionTracker, TaskHubConnectionTracker>();
         services.AddSingleton<ITaskRealtimeNotifier, SignalRTaskRealtimeNotifier>();
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IDashboardService, DashboardService>();

@@ -192,5 +192,43 @@ public sealed class SignalRTaskRealtimeNotifierTests
         Assert.Throws<ArgumentNullException>(() =>
             new SignalRTaskRealtimeNotifier(hubContext, null!));
     }
+
+    [Fact]
+    public async Task RemoveUserFromAdminGroup_And_RevokeUserConnections_RemoveTrackedConnectionsFromGroups()
+    {
+        var userId = Guid.NewGuid();
+        var tracker = new TaskHubConnectionTracker();
+        tracker.Add(userId, "conn-1");
+        tracker.Add(userId, "conn-2");
+
+        var groups = new Mock<IGroupManager>();
+        var hubContext = new Mock<IHubContext<TaskHub>>();
+        hubContext.SetupGet(h => h.Groups).Returns(groups.Object);
+
+        var sut = new SignalRTaskRealtimeNotifier(
+            hubContext.Object,
+            NullLogger<SignalRTaskRealtimeNotifier>.Instance,
+            tracker);
+
+        await sut.RemoveUserFromAdminGroupAsync(userId);
+        groups.Verify(
+            g => g.RemoveFromGroupAsync("conn-1", TaskHub.AdminsGroup, It.IsAny<CancellationToken>()),
+            Times.Once);
+        groups.Verify(
+            g => g.RemoveFromGroupAsync("conn-2", TaskHub.AdminsGroup, It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        await sut.RevokeUserConnectionsAsync(userId);
+        groups.Verify(
+            g => g.RemoveFromGroupAsync("conn-1", TaskHub.UserGroup(userId), It.IsAny<CancellationToken>()),
+            Times.Once);
+        groups.Verify(
+            g => g.RemoveFromGroupAsync("conn-2", TaskHub.UserGroup(userId), It.IsAny<CancellationToken>()),
+            Times.Once);
+
+        tracker.Remove(userId, "conn-1");
+        tracker.Remove(userId, "conn-2");
+        Assert.Empty(tracker.GetConnections(userId));
+    }
 }
 

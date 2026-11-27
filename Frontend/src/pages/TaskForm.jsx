@@ -109,6 +109,8 @@ export default function TaskForm() {
   const saveGenRef = useRef(0);
   const lookupGenRef = useRef(0);
   const failedLookupsRef = useRef({ categories: false, users: false });
+  const assignedToIdRef = useRef(assignedToId);
+  assignedToIdRef.current = assignedToId;
 
   const retryLookups = useCallback(async () => {
     const gen = ++lookupGenRef.current;
@@ -130,8 +132,12 @@ export default function TaskForm() {
       setRetainedCategory(null);
     }
     if (usersOutcome.attempted && usersOutcome.ok) {
-      setUsers(toArray(usersOutcome.value));
-      setRetainedAssignee(null);
+      const nextUsers = toArray(usersOutcome.value);
+      setUsers(nextUsers);
+      const currentAssigneeId = assignedToIdRef.current;
+      if (!currentAssigneeId || nextUsers.some((u) => String(u.id) === String(currentAssigneeId))) {
+        setRetainedAssignee(null);
+      }
     }
 
     const nextFailedLookups = {

@@ -4,6 +4,7 @@ import { getActiveSessionStorage } from "../auth/tokenStorage";
 
 const TASK_STATUS_UPDATED_EVENT = "TaskStatusUpdated";
 const HUB_PATH = "/hubs/tasks";
+const INITIAL_RETRY_DELAYS_MS = [2000, 5000, 10000, 30000];
 
 export function resolveTaskHubUrl() {
   const apiBase = import.meta.env.VITE_API_BASE_URL || "/api";
@@ -24,11 +25,21 @@ export function resolveTaskHubUrl() {
 
 const statusListeners = new Set();
 const stateListeners = new Set();
+const reconnectListeners = new Set();
 
 let sharedConnection = null;
 let sharedUserId = null;
 let connectionState = "disconnected";
 let lifecycleSeq = 0;
+let retryTimerId = null;
+let retryAttempt = 0;
+
+function clearRetryTimer() {
+  if (retryTimerId !== null) {
+    clearTimeout(retryTimerId);
+    retryTimerId = null;
+  }
+}
 
 function setConnectionState(nextState) {
   if (connectionState === nextState) return;
@@ -38,8 +49,16 @@ function setConnectionState(nextState) {
   }
 }
 
+function notifyReconnectListeners() {
+  for (const fn of reconnectListeners) {
+    fn();
+  }
+}
+
 async function stopSharedConnection() {
   lifecycleSeq += 1;
+  clearRetryTimer();
+  retryAttempt = 0;
   const conn = sharedConnection;
   sharedConnection = null;
   sharedUserId = null;
@@ -62,6 +81,24 @@ function buildHubConnection() {
     .build();
 }
 
+function scheduleInitialRetry(userId, seq) {
+  if (
+    lifecycleSeq !== seq ||
+    statusListeners.size === 0 ||
+    retryAttempt >= INITIAL_RETRY_DELAYS_MS.length
+  ) {
+    return;
+  }
+  const delayMs = INITIAL_RETRY_DELAYS_MS[retryAttempt];
+  retryAttempt += 1;
+  clearRetryTimer();
+  retryTimerId = setTimeout(() => {
+    retryTimerId = null;
+    if (lifecycleSeq !== seq || statusListeners.size === 0) return;
+    void ensureSharedConnection(userId);
+  }, delayMs);
+}
+
 async function ensureSharedConnection(userId) {
   if (!userId) {
     await stopSharedConnection();
@@ -76,6 +113,7 @@ async function ensureSharedConnection(userId) {
     await stopSharedConnection();
   }
 
+  clearRetryTimer();
   const seq = ++lifecycleSeq;
   const conn = buildHubConnection();
   sharedConnection = conn;
@@ -97,7 +135,9 @@ async function ensureSharedConnection(userId) {
 
   conn.onreconnected(() => {
     if (sharedConnection === conn) {
+      retryAttempt = 0;
       setConnectionState("connected");
+      notifyReconnectListeners();
     }
   });
 
@@ -115,6 +155,7 @@ async function ensureSharedConnection(userId) {
       await conn.stop().catch(() => {});
       return;
     }
+    retryAttempt = 0;
     setConnectionState("connected");
   } catch {
     if (sharedConnection === conn) {
@@ -122,13 +163,16 @@ async function ensureSharedConnection(userId) {
       sharedUserId = null;
       setConnectionState("disconnected");
     }
+    scheduleInitialRetry(userId, seq);
   }
 }
 
-export function useTaskStatusRealtime(userId, onStatusUpdated) {
+export function useTaskStatusRealtime(userId, onStatusUpdated, onReconnected) {
   const [state, setState] = useState(connectionState);
   const callbackRef = useRef(onStatusUpdated);
   callbackRef.current = onStatusUpdated;
+  const reconnectRef = useRef(onReconnected);
+  reconnectRef.current = onReconnected;
 
   useEffect(() => {
     if (!userId) {
@@ -142,15 +186,20 @@ export function useTaskStatusRealtime(userId, onStatusUpdated) {
     const handleState = (nextState) => {
       setState(nextState);
     };
+    const handleReconnect = () => {
+      reconnectRef.current?.();
+    };
 
     statusListeners.add(handleStatus);
     stateListeners.add(handleState);
+    reconnectListeners.add(handleReconnect);
     setState(connectionState);
     void ensureSharedConnection(userId);
 
     return () => {
       statusListeners.delete(handleStatus);
       stateListeners.delete(handleState);
+      reconnectListeners.delete(handleReconnect);
       if (statusListeners.size === 0) {
         void stopSharedConnection();
       }
@@ -159,4 +208,3 @@ export function useTaskStatusRealtime(userId, onStatusUpdated) {
 
   return state;
 }
-

@@ -29,7 +29,8 @@ public sealed class SignalRHubTests : IClassFixture<TestApiFactory>
             new LoginDto(email, TestEnv.UserPassword));
         login.EnsureSuccessStatusCode();
         var auth = await login.Content.ReadFromJsonAsync<AuthResponse>();
-        return auth!.Token;
+        Assert.NotNull(auth);
+        return auth.Token;
     }
 
     [Fact]

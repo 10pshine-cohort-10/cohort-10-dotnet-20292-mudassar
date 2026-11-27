@@ -23,17 +23,20 @@ public class UserService : IUserService
     private readonly UserManager<ApplicationUser> users;
     private readonly ILogger<UserService> log;
     private readonly AppDbContext? db;
+    private readonly ITaskRealtimeNotifier realtimeNotifier;
 
     public UserService(
         UserManager<ApplicationUser> users,
         ILogger<UserService> log,
-        AppDbContext? db = null)
+        AppDbContext? db = null,
+        ITaskRealtimeNotifier? realtimeNotifier = null)
     {
         ArgumentNullException.ThrowIfNull(users);
         ArgumentNullException.ThrowIfNull(log);
         this.users = users;
         this.log = log;
         this.db = db;
+        this.realtimeNotifier = realtimeNotifier ?? NullTaskRealtimeNotifier.Instance;
     }
     public async Task<IReadOnlyList<UserDto>> GetAllAsync(string? search = null, bool? activeOnly = null)
     {
@@ -161,6 +164,9 @@ public class UserService : IUserService
             if (tx is not null)
                 await tx.CommitAsync();
 
+            if (currentRoles.Contains(Roles.Admin) && normalizedRole != Roles.Admin)
+                await realtimeNotifier.RemoveUserFromAdminGroupAsync(user.Id);
+
             log.LogWarning(
                 "Admin {AdminId} changed role of user {TargetUserId} from [{OldRoles}] to {NewRole}",
                 actingAdminId, user.Id, string.Join(", ", currentRoles), normalizedRole);
@@ -207,6 +213,9 @@ public class UserService : IUserService
 
             if (tx is not null)
                 await tx.CommitAsync();
+
+            if (!isActive)
+                await realtimeNotifier.RevokeUserConnectionsAsync(user.Id);
 
             log.LogWarning(
                 "Admin {AdminId} set user {TargetUserId} active={IsActive}",

@@ -65,42 +65,11 @@ const invalidateOwnerCaches = (owner) => {
   deletePageCacheByPrefix(`dashboard:${owner}`);
 };
 
-function applyRealtimeTaskStatusUpdate(prev, event, statusFilter) {
-  const prevItems = prev.items ?? [];
-  const hasTask = prevItems.some((item) => item.id === event.taskId);
-  const matchesFilter = !statusFilter || event.newStatus === statusFilter;
-
-  if (!hasTask) {
-    return { next: prev, needsReload: Boolean(statusFilter && matchesFilter) };
-  }
-
-  if (!matchesFilter) {
-    return {
-      next: {
-        ...prev,
-        items: prevItems.filter((item) => item.id !== event.taskId),
-        totalCount: Math.max(0, (prev.totalCount || 0) - 1),
-      },
-      needsReload: true,
-    };
-  }
-
-  return {
-    next: {
-      ...prev,
-      items: prevItems.map((item) =>
-        item.id === event.taskId
-          ? {
-              ...item,
-              status: event.newStatus,
-              updatedAt: event.updatedAt ?? item.updatedAt,
-              rowVersion: event.rowVersion ?? item.rowVersion,
-            }
-          : item
-      ),
-    },
-    needsReload: false,
-  };
+function shouldReloadForRealtimeStatus(items, event, statusFilter) {
+  const hasTask = items.some((item) => item.id === event.taskId);
+  if (hasTask) return true;
+  if (!statusFilter) return false;
+  return event.oldStatus === statusFilter || event.newStatus === statusFilter;
 }
 
 function CategoryErrorAlert({ categoryError, retryingCategories, onRetry }) {
@@ -237,8 +206,10 @@ export default function TaskList() {
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
   const categoriesLoadedRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     if (!isMountedRef.current) return;
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -255,7 +226,7 @@ export default function TaskList() {
       searchQuery,
     });
 
-    const cachedEntry = getPageCache(cacheKey);
+    const cachedEntry = silent ? null : getPageCache(cacheKey);
     if (cachedEntry) {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
@@ -265,7 +236,7 @@ export default function TaskList() {
         setCategories(cachedCats);
       }
       setLoading(false);
-    } else {
+    } else if (!silent) {
       setLoading(true);
     }
 
@@ -303,9 +274,7 @@ export default function TaskList() {
     if (!isMountedRef.current) return;
     const gen = ++categoryGenRef.current;
     const fetchOwner = currentOwnerRef.current;
-    if (isRetry) {
-      setRetryingCategories(true);
-    }
+    setRetryingCategories(isRetry);
     setCategoryError("");
     try {
       const catsRes = await getCategories();
@@ -390,22 +359,27 @@ export default function TaskList() {
       if (!isMountedRef.current || !event?.taskId) return;
       invalidateOwnerCaches(currentOwnerRef.current);
 
-      let needsReload = false;
-      setData((prev) => {
-        const result = applyRealtimeTaskStatusUpdate(prev, event, statusFilter);
-        needsReload = result.needsReload;
-        return result.next;
-      });
-
-      if (needsReload) {
+      const currentItems = dataRef.current?.items ?? [];
+      if (shouldReloadForRealtimeStatus(currentItems, event, statusFilter)) {
         requestGenRef.current += 1;
-        void loadRef.current();
+        void loadRef.current({ silent: true });
       }
     },
     [statusFilter]
   );
 
-  const realtimeState = useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate);
+  const handleRealtimeReconnected = useCallback(() => {
+    if (!isMountedRef.current) return;
+    invalidateOwnerCaches(currentOwnerRef.current);
+    requestGenRef.current += 1;
+    void loadRef.current({ silent: true });
+  }, []);
+
+  const realtimeState = useTaskStatusRealtime(
+    user?.id,
+    handleRealtimeStatusUpdate,
+    handleRealtimeReconnected
+  );
 
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;

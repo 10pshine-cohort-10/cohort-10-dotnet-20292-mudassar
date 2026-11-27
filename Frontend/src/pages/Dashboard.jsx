@@ -113,7 +113,18 @@ export default function Dashboard() {
     [user?.id]
   );
 
-  const realtimeState = useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate);
+  const handleRealtimeReconnected = useCallback(() => {
+    const owner = user?.id ?? "anon";
+    deletePageCacheByPrefix(`dashboard:${owner}`);
+    deletePageCacheByPrefix(`tasks:${owner}:`);
+    void loadRef.current();
+  }, [user?.id]);
+
+  const realtimeState = useTaskStatusRealtime(
+    user?.id,
+    handleRealtimeStatusUpdate,
+    handleRealtimeReconnected
+  );
 
   const next = recent
     .filter((t) => t.status !== "Completed")

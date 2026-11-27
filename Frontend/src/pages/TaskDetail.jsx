@@ -34,28 +34,33 @@ export default function TaskDetail() {
   const isCurrentStatusGen = (routeGen, statusGen, targetId) =>
     isCurrentRouteGen(routeGen, targetId) && statusGenRef.current === statusGen;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     const routeGen = ++routeGenRef.current;
-    statusGenRef.current += 1;
     const targetId = id;
-    setTask(null);
-    setUpdatingStatus(false);
-    setDeleting(false);
-    setLoading(true);
-    setError("");
+    if (!silent) {
+      statusGenRef.current += 1;
+      setTask(null);
+      setUpdatingStatus(false);
+      setDeleting(false);
+      setLoading(true);
+      setError("");
+    }
     try {
       const res = await getTaskById(targetId);
       if (!isCurrentRouteGen(routeGen, targetId)) return;
       setTask(res);
     } catch (e) {
       if (!isCurrentRouteGen(routeGen, targetId)) return;
-      setError(getErrorMessage(e));
+      if (!silent) setError(getErrorMessage(e));
     } finally {
       if (isCurrentRouteGen(routeGen, targetId)) {
         setLoading(false);
       }
     }
   }, [id]);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
 
   useEffect(() => {
     void load();
@@ -75,21 +80,17 @@ export default function TaskDetail() {
     (event) => {
       if (!event?.taskId || event.taskId !== Number(activeIdRef.current)) return;
       invalidateTaskCaches();
-      setTask((prev) =>
-        prev && prev.id === event.taskId
-          ? {
-              ...prev,
-              status: event.newStatus,
-              updatedAt: event.updatedAt ?? prev.updatedAt,
-              rowVersion: event.rowVersion ?? prev.rowVersion,
-            }
-          : prev
-      );
+      void loadRef.current({ silent: true });
     },
     [invalidateTaskCaches]
   );
 
-  useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate);
+  const handleRealtimeReconnected = useCallback(() => {
+    invalidateTaskCaches();
+    void loadRef.current({ silent: true });
+  }, [invalidateTaskCaches]);
+
+  useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate, handleRealtimeReconnected);
 
   const handleStatusChange = async (newStatus) => {
     if (!task || updatingStatus || deleting) return;

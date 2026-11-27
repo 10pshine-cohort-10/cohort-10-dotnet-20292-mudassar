@@ -222,11 +222,15 @@ public class TaskService : ITaskService
 
         await SaveWithConcurrencyGuardAsync(task.Id);
 
+        var statusEvent = oldStatus != task.Status
+            ? CreateStatusUpdatedEvent(task, oldStatus, userId)
+            : null;
+
         log.LogInformation("User {UserId} updated task {TaskId}", userId, task.Id);
         var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
 
-        if (oldStatus != updated.Status)
-            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(CreateStatusUpdatedEvent(updated, oldStatus, userId));
+        if (statusEvent is not null)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(statusEvent);
 
         return updated;
     }
@@ -258,14 +262,18 @@ public class TaskService : ITaskService
 
         await SaveWithConcurrencyGuardAsync(task.Id);
 
+        var statusEvent = oldStatus != task.Status
+            ? CreateStatusUpdatedEvent(task, oldStatus, userId)
+            : null;
+
         log.LogInformation(
             "User {UserId} changed task {TaskId} status from {OldStatus} to {NewStatus}",
             userId, task.Id, oldStatus, status);
 
         var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
 
-        if (oldStatus != status)
-            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(CreateStatusUpdatedEvent(updated, oldStatus, userId));
+        if (statusEvent is not null)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(statusEvent);
 
         return updated;
     }
@@ -348,18 +356,18 @@ public class TaskService : ITaskService
     }
 
     private static TaskStatusUpdatedEvent CreateStatusUpdatedEvent(
-        TaskDto updated,
+        TaskItem task,
         TaskItemStatus oldStatus,
         Guid updatedById) => new(
-        updated.Id,
-        updated.Title,
+        task.Id,
+        task.Title,
         oldStatus,
-        updated.Status,
-        updated.UpdatedAt ?? DateTime.UtcNow,
-        updated.RowVersion,
+        task.Status,
+        task.UpdatedAt ?? DateTime.UtcNow,
+        Convert.ToBase64String(task.RowVersion ?? []),
         updatedById,
-        updated.CreatedById,
-        updated.AssignedToId);
+        task.CreatedById,
+        task.AssignedToId);
 
     private static TaskDto MapToDto(TaskItem t) => new(
         t.Id,
