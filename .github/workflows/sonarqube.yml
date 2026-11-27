@@ -1,0 +1,65 @@
+name: SonarQube Code Quality Analysis
+
+on:
+  push:
+    branches:
+      - main
+      - feature/sonarqube-integration
+      - SonarQube-Integration
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarqube:
+    name: Analyze C# (.NET) & JavaScript (React)
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dotnet-sonarscanner
+        run: dotnet tool install --global dotnet-sonarscanner
+
+      - name: Build & Test C# Backend (offline quality gate always runs)
+        run: |
+          dotnet build Backend/TaskManager.sln -c Release
+          dotnet test Backend/TaskManager.sln -c Release --no-build --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+
+      - name: Lint & Build React Frontend
+        working-directory: Frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+      - name: Run SonarQube Scanner (when SONAR_TOKEN is configured)
+        if: ${{ env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != '' }}
+        run: |
+          dotnet sonarscanner begin \
+            /k:"cohort-10-dotnet-20292-mudassar" \
+            /d:sonar.host.url="$SONAR_HOST_URL" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.sources="Backend/src/TaskManager.Api,Frontend/src" \
+            /d:sonar.tests="Backend/tests/TaskManager.Tests" \
+            /d:sonar.exclusions="**/node_modules/**,**/dist/**,**/bin/**,**/obj/**,**/Data/Migrations/**" \
+            /d:sonar.cs.opencover.reportsPaths="**/TestResults/**/coverage.opencover.xml" \
+            /d:sonar.javascript.file.suffixes=".js,.jsx"
+          dotnet build Backend/TaskManager.sln -c Release --no-incremental
+          dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+
