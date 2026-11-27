@@ -1,6 +1,6 @@
 # TaskFlow — Full-Stack Task Management System
 
-TaskFlow is a full-stack task management application built with **ASP.NET Core (.NET 10)**, **Entity Framework Core + SQL Server**, **JWT Authentication & Role-Based Access Control (RBAC)**, **Serilog**, **xUnit**, **SonarQube**, and a **React 18 + Vite** single-page frontend.
+TaskFlow is a full-stack task management application built with **ASP.NET Core (.NET 10)**, **Entity Framework Core + SQL Server**, **ASP.NET Core SignalR**, **JWT Authentication & Role-Based Access Control (RBAC)**, **Serilog**, **xUnit**, **SonarQube**, and a **React 18 + Vite** single-page frontend.
 
 ---
 
@@ -8,11 +8,11 @@ TaskFlow is a full-stack task management application built with **ASP.NET Core (
 
 | Layer | Technologies |
 |---|---|
-| **Backend API** | .NET 10, ASP.NET Core Web API, ASP.NET Core Identity, JWT Bearer Auth, Swagger / Swashbuckle |
+| **Backend API** | .NET 10, ASP.NET Core Web API, ASP.NET Core Identity, JWT Bearer Auth, SignalR, Swagger / Swashbuckle |
 | **Database & ORM** | SQL Server, Entity Framework Core 10, Fluent API configurations, Soft-Delete interceptor, `RowVersion` optimistic concurrency |
 | **Logging & Error Handling** | Serilog (Async Console + Rolling Daily File sinks), RFC 7807 `ProblemDetails` global exception middleware |
-| **Frontend** | React 18, Vite 5, React Router 6, Axios, React Hook Form, Zod, CSS custom properties (Light/Dark theme) |
-| **Testing** | xUnit, Moq, `WebApplicationFactory<Program>`, EF Core (106 unit & integration tests) |
+| **Frontend** | React 18, Vite 5, React Router 6, Axios, `@microsoft/signalr`, React Hook Form, Zod, CSS custom properties (Light/Dark theme) |
+| **Testing** | xUnit, Moq, `WebApplicationFactory<Program>`, EF Core (127 unit & integration tests) |
 | **Code Quality & CI** | Roslyn Analyzers (`Directory.Build.props`), `.editorconfig` (SonarAnalyzer C# rules), ESLint (SonarJS-aligned rules), SonarQube + GitHub Actions |
 
 ---
@@ -49,14 +49,19 @@ cohort-10-dotnet-20292-mudassar/
 │   │   │   ├── AuthController.cs                     # /api/auth (register, login, me, update profile, logout)
 │   │   │   ├── CategoriesController.cs               # /api/categories (CRUD, Admin-only writes)
 │   │   │   ├── DashboardController.cs                # /api/dashboard/summary
-│   │   │   ├── TasksController.cs                    # /api/tasks (paged list, detail, create, update, status patch, soft delete)
+│   │   │   ├── TasksController.cs                    # /api/tasks (paged/filtered/sorted list, detail, create, update, status patch, soft delete)
+│   │   │   ├── TaskTransferController.cs             # /api/tasks/export (JSON/CSV) & /api/tasks/import (multipart upload)
 │   │   │   └── UsersController.cs                    # /api/users (Admin user list/detail/role/active + /lookup)
 │   │   ├── DTOs/
 │   │   │   ├── AuthDtos.cs                           # Register, Login, AuthResponse, UpdateProfile, UserInfo DTOs
 │   │   │   ├── CategoryDtos.cs                       # CategoryDto, SaveCategoryDto
 │   │   │   ├── DashboardDtos.cs                      # DashboardSummaryDto
-│   │   │   ├── TaskDtos.cs                           # CreateTaskDto, UpdateTaskDto, UpdateTaskStatusDto, TaskDto, PagedResult
+│   │   │   ├── TaskDtos.cs                           # CreateTaskDto, UpdateTaskDto, UpdateTaskStatusDto, TaskFilterParams, TaskDto, PagedResult
+│   │   │   ├── TaskRealtimeDtos.cs                   # TaskStatusUpdatedEvent SignalR payload
+│   │   │   ├── TaskTransferDtos.cs                   # TaskExportItemDto, TaskImportRowErrorDto, TaskImportResultDto, TaskExportFileDto
 │   │   │   └── UserDtos.cs                           # UserDto, UserLookupDto, ChangeRoleDto, SetActiveDto
+│   │   ├── Hubs/
+│   │   │   └── TaskHub.cs                            # /hubs/tasks SignalR hub + atomic per-user connection tracker & live access checks
 │   │   ├── Entities/
 │   │   │   ├── ApplicationUser.cs                    # IdentityUser<Guid> + FullName, IsActive, CreatedAt
 │   │   │   ├── Category.cs                           # Task category entity
@@ -86,8 +91,10 @@ cohort-10-dotnet-20292-mudassar/
 │   │   │   ├── CategoryService.cs                    # Category CRUD with case-insensitive uniqueness & FK checks
 │   │   │   ├── DashboardService.cs                   # Role-scoped status summary counts
 │   │   │   ├── JwtTokenService.cs                    # HMAC-SHA256 JWT generation with SecurityStamp & JTI claims
-│   │   │   ├── TaskService.cs                        # Task CRUD, ownership checks, paging/filtering, optimistic concurrency
-│   │   │   └── UserService.cs                        # User management, last-active-admin lock/transaction guard, token revocation
+│   │   │   ├── TaskRealtimeNotifier.cs               # SignalR status broadcasts & admin/user group revocation
+│   │   │   ├── TaskService.cs                        # Task CRUD, ownership checks, advanced filtering/sorting, concurrency, realtime events
+│   │   │   ├── TaskTransferService.cs                # JSON/CSV task export (formula-safe) & validated batch import
+│   │   │   └── UserService.cs                        # User management, last-active-admin lock/transaction guard, JWT & SignalR revocation
 │   │   ├── Exceptions/
 │   │   │   └── AppExceptions.cs                      # AppValidation, Unauthorized, Forbidden, NotFound, Conflict exceptions
 │   │   ├── Extensions/
@@ -115,14 +122,18 @@ cohort-10-dotnet-20292-mudassar/
 │       │   ├── AuthServiceTests.cs                   # Auth rules, duplicate email, lockout, concurrency retry
 │       │   ├── CategoryServiceTests.cs               # Category CRUD, duplicate name, referenced-category conflict
 │       │   ├── JwtTokenServiceTests.cs               # JWT expiry, identity/role claims, unique JTI
-│       │   ├── TaskServiceTests.cs                   # Ownership, search/filters, past due date, RowVersion concurrency
+│       │   ├── SignalRTaskRealtimeNotifierTests.cs   # SignalR group routing, live access checks, demotion/deactivation revocation
+│       │   ├── TaskServiceTests.cs                   # Ownership, search/filters/sorting, overdue/date range, concurrency, realtime events
+│       │   ├── TaskTransferServiceTests.cs           # JSON/CSV round-trip export/import, formula neutralization, validation errors
 │       │   └── UserServiceTests.cs                   # Role/active changes, self-demotion & last-admin protection
 │       └── Integration/
 │           ├── TestApiFactory.cs                     # WebApplicationFactory<Program> with InMemory DB & Testing env
 │           ├── AuthEndpointsTests.cs                 # Full HTTP auth flows, 401 ProblemDetails, lockout
 │           ├── CategoriesEndpointsTests.cs           # Admin/User RBAC & category CRUD over HTTP
 │           ├── DashboardEndpointsTests.cs            # User-scoped vs Admin summary counts over HTTP
+│           ├── SignalRHubTests.cs                    # /hubs/tasks negotiate auth (401 anonymous/invalid, 200 valid JWT)
 │           ├── TasksEndpointsTests.cs                # Full Task CRUD, concurrency 409, filters, soft delete over HTTP
+│           ├── TaskTransferEndpointsTests.cs         # /api/tasks/export & /api/tasks/import multipart HTTP round-trip tests
 │           └── UsersEndpointsTests.cs                # User admin flows, instant JWT revocation on role/active change
 │
 └── Frontend/
@@ -134,7 +145,7 @@ cohort-10-dotnet-20292-mudassar/
     ├── package.json                                  # Scripts: dev, build, preview, lint, sonar
     ├── package-lock.json
     ├── sonar-project.properties                      # Standalone frontend SonarScanner config
-    ├── vite.config.js                                # Vite dev server (:5173) & validated /api proxy
+    ├── vite.config.js                                # Vite dev server (:5173) & validated /api + /hubs (WebSocket) proxy
     ├── public/
     │   └── favicon.svg
     └── src/
@@ -158,21 +169,26 @@ cohort-10-dotnet-20292-mudassar/
         │   ├── AuthLayout.jsx                        # Split auth layout for Login & Signup
         │   ├── ErrorAlert.jsx                        # Dismissible error/success alert banner
         │   ├── Field.jsx                             # Accessible form input with password toggle & error binding
+        │   ├── LiveBadge.jsx                         # Green "Live" indicator when SignalR is connected
         │   ├── Navbar.jsx                            # Responsive navigation bar, role badge, logout, theme toggle
         │   ├── PageHeader.jsx                        # Page title, subtitle, and primary action header
         │   ├── PriorityBadge.jsx                     # Color-coded priority pill (Low/Medium/High/Critical)
         │   ├── StatusBadge.jsx                       # Color-coded status pill (Pending/InProgress/Completed)
         │   ├── SummaryCard.jsx                       # Dashboard KPI metric card
+        │   ├── TaskFiltersBar.jsx                    # Debounced search, status/priority/category/assignee/date/overdue filters & sort
+        │   ├── TaskTransferControls.jsx              # Export JSON/CSV, Import file upload & per-row error summary banner
         │   └── ThemeToggle.jsx                       # Light / Dark theme toggle button
+        ├── realtime/
+        │   └── taskHubClient.js                      # Shared SignalR HubConnection, bounded initial retries, reconnect refresh hook
         ├── pages/
         │   ├── ComingSoon.jsx                        # Placeholder page component
-        │   ├── Dashboard.jsx                         # Status KPI cards + recent tasks table
+        │   ├── Dashboard.jsx                         # Live status KPI cards + recent tasks table
         │   ├── Login.jsx                             # Login form (React Hook Form + Zod)
         │   ├── Profile.jsx                           # User details, inline Full Name editor, logout
         │   ├── Signup.jsx                            # Registration form with password strength validation
-        │   ├── TaskDetail.jsx                        # Full task details, quick status switch, edit/delete actions
+        │   ├── TaskDetail.jsx                        # Live task details, quick status switch, edit/delete actions
         │   ├── TaskForm.jsx                          # Create & Edit task form with lookup retry & retained options
-        │   └── TaskList.jsx                          # Search, status/priority/category filters, quick status, pagination
+        │   └── TaskList.jsx                          # Live search/filter/sort, export/import, quick status, pagination
         ├── styles/
         │   ├── auth.css                              # Auth pages styling
         │   └── dashboard.css                         # App layout, tables, cards, alerts, responsive styles
@@ -229,7 +245,16 @@ dotnet ef database update --project Backend/src/TaskManager.Api
 
 ### Step 3: Run the Frontend (React + Vite)
 
-In a second terminal:
+Because the Vite dev proxy connects to `https://localhost:5001` with TLS verification enabled, first trust and export the ASP.NET Core development certificate so Node trusts it (see the full Windows/macOS/Linux steps under **Local HTTPS Development Certificate** in `Frontend/README.md`):
+
+```powershell
+dotnet dev-certs https --trust
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aspnet\https" | Out-Null
+dotnet dev-certs https -ep "$env:USERPROFILE\.aspnet\https\dev-cert.pem" --format Pem --no-password
+$env:NODE_EXTRA_CA_CERTS = "$env:USERPROFILE\.aspnet\https\dev-cert.pem"
+```
+
+Then, in that terminal:
 
 ```powershell
 cd Frontend
@@ -238,7 +263,7 @@ npm run dev
 ```
 
 - **Frontend URL:** `http://localhost:5173`
-- By default, Vite proxies `/api` requests to `https://localhost:5001` (configurable via `VITE_DEV_API_TARGET`).
+- By default, Vite proxies `/api` and `/hubs` (WebSockets for SignalR) to `https://localhost:5001` (configurable via `VITE_DEV_API_TARGET`, and the exported certificate can also be passed via `VITE_DEV_CA_CERT`).
 
 ---
 
@@ -250,7 +275,7 @@ Run from the repository root:
 # 1. Backend Release build with Roslyn/Sonar analyzers enforced as errors
 dotnet build Backend/TaskManager.sln -c Release --no-incremental -warnaserror
 
-# 2. Run all 106 xUnit unit & integration tests (with OpenCover coverage + TRX report)
+# 2. Run all 127 xUnit unit & integration tests (with OpenCover coverage + TRX report)
 dotnet test Backend/TaskManager.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
 # 3. Frontend ESLint quality gate (0 warnings allowed)
@@ -277,13 +302,15 @@ npm --prefix Frontend run build
 - **Recent Tasks Overview:** Quick overview table linking directly into task details.
 
 ### 3. Task Management (`/tasks`, `/tasks/new`, `/tasks/:id`, `/tasks/:id/edit`)
-- **Search, Filter & Pagination (`/tasks`):** Server-side filtering by search query (title, description, or assignee name), status (`Pending`, `InProgress`, `Completed`), priority (`Low`, `Medium`, `High`, `Critical`), and category, with URL-synced query parameters and pagination controls.
+- **Advanced Search, Filter, Sort & Pagination (`/tasks`):** Debounced server-side search (300 ms across title, description, and assignee name), filter dropdowns for status, priority, category, and assignee, due-date range (`dueFrom` / `dueTo`), an **Overdue only** toggle, multi-field sorting (`createdAt`, `dueDate`, `priority`, `status`, `title` in `asc`/`desc`), URL-synced query parameters, and a **Clear filters (N)** action.
+- **Real-Time Task Status Updates (SignalR `/hubs/tasks`):** Status changes from `PATCH /api/tasks/{id}/status` or `PUT /api/tasks/{id}` are pushed in real time via SignalR to authorized viewers (`admins`, task creator, and assignee) with live **Dashboard**, **Tasks**, and **Task Detail** refreshes, a green **Live** connection badge, bounded initial-start retries, automatic reconnect data sync, JWT expiration disconnect, and immediate group revocation on user demotion/deactivation.
+- **Export & Import (JSON & CSV):** Export the currently filtered task set to `.json` or `.csv` (with RFC 4180 escaping, round-trip ISO `DueDate` values, and CSV formula-injection neutralization) and batch-import `.json` or `.csv` files (2 MB / 500-row limits) with per-row validation error reporting and `"Imported"` audit history entries.
 - **Quick Status Updates:** Change task status inline from the task list or detail view (`PATCH /api/tasks/{id}/status`), automatically keeping status filters and cached pages consistent.
-- **Create & Edit Tasks (`/tasks/new`, `/tasks/:id/edit`):** Assign priority, status, category, assignee (populated from active users via `/api/users/lookup`), description, and due date (prevents past due dates on creation). Includes lookup retry controls and preserves retained category/assignee options if a lookup request fails.
+- **Create & Edit Tasks (`/tasks/new`, `/tasks/:id/edit`):** Assign priority, status, category, assignee (populated from active users via `/api/users/lookup`), description, and due date (prevents past due dates on creation). Includes lookup retry controls and preserves retained category/assignee options whenever a selection is omitted by a lookup.
 - **Optimistic Concurrency Protection:** Editing a task sends its `RowVersion` token; if another user modified the task first, the API returns `409 Conflict` (`ProblemDetails`) instead of silently overwriting changes.
 - **Ownership & Soft-Delete Guarantee:**
   - Standard users can view/update tasks they created or are assigned to, and only the creator or an `Admin` can delete a task.
-  - Deleting a task **never physically removes the row** through `AppDbContext` — `ConvertTaskDeletesToSoftDelete` marks `IsDeleted = true`, records `DeletedAt`, hides it via EF Core global query filters, and preserves associated `TaskComments` and `TaskHistories`.
+  - Deleting a tracked `TaskItem` saved through `AppDbContext.SaveChanges` / `SaveChangesAsync` **never physically removes the row** — `ConvertTaskDeletesToSoftDelete` marks `IsDeleted = true`, records `DeletedAt`, hides it via EF Core global query filters, and preserves associated `TaskComments` and `TaskHistories`. Note that bulk `ExecuteDelete` / `ExecuteDeleteAsync` calls and raw SQL statements bypass `SaveChanges` and therefore bypass this soft-delete guarantee.
 
 ### 4. Profile & Theme Preferences (`/profile` & Navbar)
 - **Profile View & Inline Name Update:** Displays user avatar initials, full name, email, assigned roles, active status, and user ID. Users can edit and save their display name (`PUT /api/auth/me`) with inline validation and session-bound save protection.
@@ -301,12 +328,15 @@ npm --prefix Frontend run build
 | **Auth** | `PUT /api/auth/me` | Authenticated | Update current user's full name |
 | **Auth** | `POST /api/auth/logout` | Authenticated | Log sign-out event (`204 No Content`) |
 | **Dashboard** | `GET /api/dashboard/summary` | Authenticated | Status counts (own tasks for `User`, all tasks for `Admin`) |
-| **Tasks** | `GET /api/tasks` | Authenticated | Paged, filtered task list (`page`, `pageSize`, `status`, `priority`, `categoryId`, `assignedToId`, `search`) |
+| **Tasks** | `GET /api/tasks` | Authenticated | Paged, filtered, sorted task list (`page`, `pageSize`, `status`, `priority`, `categoryId`, `assignedToId`, `dueFrom`, `dueTo`, `overdueOnly`, `sortBy`, `sortDir`, `search`) |
 | **Tasks** | `GET /api/tasks/{id}` | Owner, Assignee, or Admin | Get single task details |
 | **Tasks** | `POST /api/tasks` | Authenticated | Create a new task |
 | **Tasks** | `PUT /api/tasks/{id}` | Owner, Assignee, or Admin | Full task update with `RowVersion` concurrency check |
-| **Tasks** | `PATCH /api/tasks/{id}/status` | Owner, Assignee, or Admin | Quick status transition |
+| **Tasks** | `PATCH /api/tasks/{id}/status` | Owner, Assignee, or Admin | Quick status transition (broadcasts `TaskStatusUpdated` via SignalR) |
 | **Tasks** | `DELETE /api/tasks/{id}` | Owner or Admin | Soft-delete task and record audit history |
+| **Tasks** | `GET /api/tasks/export` | Authenticated | Export filtered tasks to downloadable `.json` or `.csv` file (`format=json\|csv`) |
+| **Tasks** | `POST /api/tasks/import` | Authenticated | Batch-import tasks from `.json` or `.csv` (`multipart/form-data`, field `file`) |
+| **Realtime** | `WS /hubs/tasks` | Authenticated (JWT) | SignalR hub pushing `TaskStatusUpdated` events to authorized user/admin groups |
 | **Categories** | `GET /api/categories` | Authenticated | List categories ordered by name with active task counts |
 | **Categories** | `GET /api/categories/{id}` | Authenticated | Get single category |
 | **Categories** | `POST /api/categories` | Admin | Create category (case-insensitive uniqueness) |
