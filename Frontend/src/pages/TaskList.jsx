@@ -196,6 +196,7 @@ export default function TaskList() {
   currentOwnerRef.current = ownerKey;
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
+  const categoriesLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!isMountedRef.current) return;
@@ -218,7 +219,11 @@ export default function TaskList() {
     if (cachedEntry) {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
-      if (cachedEntry.categories?.length && categoriesRef.current.length === 0) {
+      if (
+        !categoriesLoadedRef.current &&
+        cachedEntry.categories?.length &&
+        categoriesRef.current.length === 0
+      ) {
         setCategories(toArray(cachedEntry.categories));
       }
       setLoading(false);
@@ -274,6 +279,7 @@ export default function TaskList() {
         return;
       }
       const nextCats = toArray(catsRes);
+      categoriesLoadedRef.current = true;
       setCategories(nextCats);
       const currentEntry = getPageCache(cacheKeyRef.current);
       if (currentEntry) {
@@ -314,6 +320,7 @@ export default function TaskList() {
   }, []);
 
   useEffect(() => {
+    categoriesLoadedRef.current = false;
     void fetchCategories();
   }, [ownerKey, fetchCategories]);
 

@@ -54,6 +54,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed (exit code $LASTEXITCODE).
 
 Write-Host "==> Running xUnit Tests with Code Coverage..."
 dotnet test Backend/TaskManager.sln -c Release --no-build `
+    --logger "trx;LogFileName=test-results.trx" `
     --collect:"XPlat Code Coverage" `
     -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 if ($LASTEXITCODE -ne 0) { throw "dotnet test failed (exit code $LASTEXITCODE)." }

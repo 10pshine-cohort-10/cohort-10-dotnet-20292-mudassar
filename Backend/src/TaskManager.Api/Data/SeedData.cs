@@ -113,14 +113,7 @@ public static class SeedData
         var existingAccount = await users.FindByEmailAsync(email);
         if (existingAccount is not null)
         {
-            if (isAdminSeed
-                && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
-            {
-                // Report the conflict but never promote an existing non-admin (or inactive) account automatically.
-                log.LogError(
-                    "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
-                    existingAccount.Id, Roles.Admin);
-            }
+            await ReportAdminSeedConflictIfNeededAsync(users, existingAccount, isAdminSeed, log);
             return;
         }
 
@@ -156,9 +149,20 @@ public static class SeedData
             if (tx is not null)
                 await tx.RollbackAsync();
 
+            db.Entry(account).State = EntityState.Detached;
+
             var createErrors = string.Join(" ", createResult.Errors.Select(e => e.Description));
             if (isAdminSeed)
+            {
+                var existingAfterFailure = await users.FindByEmailAsync(email);
+                if (existingAfterFailure is not null)
+                {
+                    await ReportAdminSeedConflictIfNeededAsync(users, existingAfterFailure, isAdminSeed, log);
+                    return;
+                }
+
                 throw new InvalidOperationException($"Could not seed the configured {role} account: {createErrors}");
+            }
 
             log.LogWarning("Could not seed {Role} account: {Errors}", role, createErrors);
             return;
@@ -186,5 +190,21 @@ public static class SeedData
             await tx.CommitAsync();
 
         log.LogInformation("Seeded {Role} account {UserId}", role, account.Id);
+    }
+
+    private static async Task ReportAdminSeedConflictIfNeededAsync(
+        UserManager<ApplicationUser> users,
+        ApplicationUser existingAccount,
+        bool isAdminSeed,
+        ILogger log)
+    {
+        if (isAdminSeed
+            && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
+        {
+            // Report the conflict but never promote an existing non-admin (or inactive) account automatically.
+            log.LogError(
+                "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
+                existingAccount.Id, Roles.Admin);
+        }
     }
 }

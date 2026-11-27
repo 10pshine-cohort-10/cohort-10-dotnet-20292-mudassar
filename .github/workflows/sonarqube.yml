@@ -44,7 +44,7 @@ jobs:
           export SeedAdmin__Password="CiAdmin!$(openssl rand -hex 8)9"
           export SeedUser__Email="user@ci.taskmanager.local"
           export SeedUser__Password="CiUser!$(openssl rand -hex 8)9"
-          dotnet test Backend/TaskManager.sln -c Release --no-build --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+          dotnet test Backend/TaskManager.sln -c Release --no-build --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
       - name: Lint & Build React Frontend
         working-directory: Frontend

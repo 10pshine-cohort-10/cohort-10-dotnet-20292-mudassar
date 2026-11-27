@@ -106,7 +106,7 @@ export function AuthProvider({ children, storage: storageProp }) {
   const [restoreError, setRestoreError] = useState("");
 
   const sessionVersionRef = useRef(0);
-  const logoutInFlightRef = useRef(false);
+  const logoutPromiseRef = useRef(null);
   const suppressStoredTokenRef = useRef(false);
 
   const getSessionVersion = useCallback(() => sessionVersionRef.current, []);
@@ -196,7 +196,7 @@ export function AuthProvider({ children, storage: storageProp }) {
 
     const applyCrossTabTokenChange = (nextValue) => {
       sessionVersionRef.current += 1;
-      logoutInFlightRef.current = false;
+      logoutPromiseRef.current = null;
       if (nextValue) {
         suppressStoredTokenRef.current = false;
         setActiveAccountIdentity(getTokenAccountIdentity(nextValue));
@@ -239,16 +239,11 @@ export function AuthProvider({ children, storage: storageProp }) {
     clearPageCache();
     const data = await loginRequest(email, password);
     if (sessionVersionRef.current !== startingVersion) {
-      return {
-        ok: false,
-        interrupted: true,
-        status: "interrupted",
-        message: INTERRUPTED_LOGIN_ERROR,
-      };
+      return resolveSupersededLoginOutcome(storage, suppressStoredTokenRef.current);
     }
     sessionVersionRef.current += 1;
     const loginVersion = sessionVersionRef.current;
-    logoutInFlightRef.current = false;
+    logoutPromiseRef.current = null;
     let superseded = false;
     try {
       const applied = await storage.setToken(data.token);
@@ -282,54 +277,67 @@ export function AuthProvider({ children, storage: storageProp }) {
     }
   }, [restoreSession, storage]);
 
-  const logout = useCallback(async () => {
-    if (logoutInFlightRef.current) return;
-    setActiveSessionStorage(storage);
-    logoutInFlightRef.current = true;
-    const startingVersion = sessionVersionRef.current;
-    const capturedToken = await readCapturedToken(storage);
-    let incompleteLogoutError = null;
-
+  const clearLocalSessionOnLogout = useCallback(async (capturedToken) => {
+    const logoutVersion = ++sessionVersionRef.current;
+    suppressStoredTokenRef.current = true;
+    setActiveAccountIdentity(null);
+    clearPageCache();
+    setRestoreError("");
+    setLoading(true);
     try {
-      await logoutRequest({ timeout: 3000 });
-    } catch {
-      /* discard local session even if the server times out or is unreachable */
-    } finally {
-      logoutInFlightRef.current = false;
-      // Only clear session state if no newer login occurred while logout was in flight.
-      if (sessionVersionRef.current === startingVersion) {
-        const logoutVersion = ++sessionVersionRef.current;
-        suppressStoredTokenRef.current = true;
-        setActiveAccountIdentity(null);
-        clearPageCache();
+      await removeSessionToken(storage, capturedToken);
+      if (sessionVersionRef.current === logoutVersion) {
+        suppressStoredTokenRef.current = false;
         setRestoreError("");
-        setLoading(true);
-        try {
-          await removeSessionToken(storage, capturedToken);
-          if (sessionVersionRef.current === logoutVersion) {
-            suppressStoredTokenRef.current = false;
-            setRestoreError("");
-            setUserState(null);
-            setLoading(false);
-          }
-        } catch (err) {
-          // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
-          // and surface the incomplete sign-out because server logout is stateless.
-          console.error("Failed to remove token from session storage during logout:", err);
-          if (sessionVersionRef.current === logoutVersion) {
-            setUserState(null);
-            setRestoreError(INCOMPLETE_LOGOUT_ERROR);
-            setLoading(false);
-          }
-          incompleteLogoutError = err;
-        }
+        setUserState(null);
+        setLoading(false);
       }
-    }
-
-    if (incompleteLogoutError) {
-      throw incompleteLogoutError;
+    } catch (err) {
+      // Keep suppressStoredTokenRef true so restoreSession cannot resurrect the stale token,
+      // and surface the incomplete sign-out because server logout is stateless.
+      console.error("Failed to remove token from session storage during logout:", err);
+      if (sessionVersionRef.current === logoutVersion) {
+        setUserState(null);
+        setRestoreError(INCOMPLETE_LOGOUT_ERROR);
+        setLoading(false);
+      }
+      throw err;
     }
   }, [storage]);
+
+  const logout = useCallback(() => {
+    if (logoutPromiseRef.current) {
+      return logoutPromiseRef.current;
+    }
+
+    const pendingLogout = (async () => {
+      setActiveSessionStorage(storage);
+      const startingVersion = sessionVersionRef.current;
+      const capturedToken = await readCapturedToken(storage);
+
+      try {
+        await logoutRequest({ timeout: 3000 });
+      } catch {
+        /* discard local session even if the server times out or is unreachable */
+      }
+
+      // Only clear session state if no newer login occurred while logout was in flight.
+      if (sessionVersionRef.current === startingVersion) {
+        await clearLocalSessionOnLogout(capturedToken);
+      }
+    })();
+
+    logoutPromiseRef.current = pendingLogout;
+    void pendingLogout
+      .finally(() => {
+        if (logoutPromiseRef.current === pendingLogout) {
+          logoutPromiseRef.current = null;
+        }
+      })
+      .catch(() => {});
+
+    return pendingLogout;
+  }, [clearLocalSessionOnLogout, storage]);
 
   const value = useMemo(
     () => ({
