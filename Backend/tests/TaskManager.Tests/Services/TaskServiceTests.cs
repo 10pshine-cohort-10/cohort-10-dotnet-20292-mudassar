@@ -358,5 +358,66 @@ public sealed class TaskServiceTests : IAsyncLifetime, IDisposable
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
+
+    [Fact]
+    public async Task GetAll_FiltersByDueDateRangeAndOverdueOnly_AndSupportsSorting()
+    {
+        var today = DateTime.UtcNow.Date;
+        _db.Tasks.AddRange(
+            new TaskItem
+            {
+                Title = "Alpha Overdue",
+                Status = TaskItemStatus.Pending,
+                Priority = TaskPriority.Low,
+                DueDate = today.AddDays(-2),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-3),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            },
+            new TaskItem
+            {
+                Title = "Beta Completed Past",
+                Status = TaskItemStatus.Completed,
+                Priority = TaskPriority.High,
+                DueDate = today.AddDays(-1),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-2),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            },
+            new TaskItem
+            {
+                Title = "Gamma Upcoming",
+                Status = TaskItemStatus.InProgress,
+                Priority = TaskPriority.Critical,
+                DueDate = today.AddDays(5),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-1),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            });
+        await _db.SaveChangesAsync();
+
+        var sut = CreateSut();
+
+        var overdue = await sut.GetAllAsync(_owner.Id, isAdmin: false, new TaskFilterParams(OverdueOnly: true));
+        Assert.Equal("Alpha Overdue", Assert.Single(overdue.Items).Title);
+
+        var inRange = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(DueFrom: today.AddDays(1), DueTo: today.AddDays(7)));
+        Assert.Equal("Gamma Upcoming", Assert.Single(inRange.Items).Title);
+
+        var sortedByTitleAsc = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(SortBy: "title", SortDir: "asc"));
+        Assert.Equal(["Alpha Overdue", "Beta Completed Past", "Gamma Upcoming"], sortedByTitleAsc.Items.Select(t => t.Title).ToArray());
+
+        var sortedByPriorityDesc = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(SortBy: "priority", SortDir: "desc"));
+        Assert.Equal("Gamma Upcoming", sortedByPriorityDesc.Items[0].Title);
+    }
 }
 

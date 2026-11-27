@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTasks, updateTaskStatus } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
+import { getUserLookup } from "../api/usersApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
 import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pageCache";
@@ -10,6 +11,7 @@ import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import PageHeader from "../components/PageHeader";
 import LiveBadge from "../components/LiveBadge";
 import TaskTransferControls, { ImportResultAlert } from "../components/TaskTransferControls";
+import TaskFiltersBar from "../components/TaskFiltersBar";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -36,27 +38,51 @@ function parseTaskFilters(searchParams) {
     statusFilter: searchParams.get("status") || "",
     priorityFilter: searchParams.get("priority") || "",
     categoryFilter: searchParams.get("categoryId") || "",
+    assigneeFilter: searchParams.get("assignedToId") || "",
+    dueFrom: searchParams.get("dueFrom") || "",
+    dueTo: searchParams.get("dueTo") || "",
+    overdueOnly: searchParams.get("overdueOnly") === "true",
+    sortBy: searchParams.get("sortBy") || "createdAt",
+    sortDir: searchParams.get("sortDir") || "desc",
     searchQuery: searchParams.get("search") || "",
     page: Math.max(1, Number(searchParams.get("page") || 1) || 1),
   };
 }
 
-function buildTaskQueryParams({ page, statusFilter, priorityFilter, categoryFilter, searchQuery }) {
-  const params = { page, pageSize: PAGE_SIZE };
-  if (statusFilter) params.status = statusFilter;
-  if (priorityFilter) params.priority = priorityFilter;
-  if (categoryFilter) params.categoryId = Number(categoryFilter);
-  if (searchQuery.trim()) params.search = searchQuery.trim();
+function buildFilterQueryFields(filters) {
+  const params = {};
+  if (filters.statusFilter) params.status = filters.statusFilter;
+  if (filters.priorityFilter) params.priority = filters.priorityFilter;
+  if (filters.categoryFilter) params.categoryId = Number(filters.categoryFilter);
+  if (filters.assigneeFilter) params.assignedToId = filters.assigneeFilter;
+  if (filters.dueFrom) params.dueFrom = filters.dueFrom;
+  if (filters.dueTo) params.dueTo = filters.dueTo;
+  if (filters.overdueOnly) params.overdueOnly = true;
+  if (filters.sortBy && filters.sortBy !== "createdAt") params.sortBy = filters.sortBy;
+  if (filters.sortDir && filters.sortDir !== "desc") params.sortDir = filters.sortDir;
+  if (filters.searchQuery.trim()) params.search = filters.searchQuery.trim();
   return params;
 }
 
-function buildExportFilterParams({ statusFilter, priorityFilter, categoryFilter, searchQuery }) {
-  const params = {};
-  if (statusFilter) params.status = statusFilter;
-  if (priorityFilter) params.priority = priorityFilter;
-  if (categoryFilter) params.categoryId = Number(categoryFilter);
-  if (searchQuery.trim()) params.search = searchQuery.trim();
-  return params;
+function buildTaskQueryParams(filters) {
+  return { page: filters.page, pageSize: PAGE_SIZE, ...buildFilterQueryFields(filters) };
+}
+
+function buildTaskCacheKey(userCachePrefix, filters) {
+  return [
+    userCachePrefix,
+    filters.page,
+    filters.statusFilter,
+    filters.priorityFilter,
+    filters.categoryFilter,
+    filters.assigneeFilter,
+    filters.dueFrom,
+    filters.dueTo,
+    filters.overdueOnly ? "1" : "0",
+    filters.sortBy,
+    filters.sortDir,
+    filters.searchQuery,
+  ].join(":");
 }
 
 const isCanceledError = (e) => e?.code === "ERR_CANCELED" || e?.name === "CanceledError";
@@ -184,17 +210,18 @@ function TaskPagination({ page, totalPages, onPageChange }) {
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { statusFilter, priorityFilter, categoryFilter, searchQuery, page } =
-    parseTaskFilters(searchParams);
+  const filters = parseTaskFilters(searchParams);
+  const { statusFilter, page } = filters;
 
   const ownerKey = user?.id ?? "anon";
   const userCachePrefix = `tasks:${ownerKey}:`;
-  const cacheKey = `${userCachePrefix}${page}:${statusFilter}:${priorityFilter}:${categoryFilter}:${searchQuery}`;
+  const cacheKey = buildTaskCacheKey(userCachePrefix, filters);
   const cached = getPageCache(cacheKey);
 
   const [data, setData] = useState(() => cached?.data ?? EMPTY_DATA);
   const [dataKey, setDataKey] = useState(() => (cached ? cacheKey : null));
   const [categories, setCategories] = useState(() => cached?.categories ?? []);
+  const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(() => !cached);
   const [pendingStatusIds, setPendingStatusIds] = useState(() => new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set());
@@ -229,13 +256,7 @@ export default function TaskList() {
     const gen = ++requestGenRef.current;
     const loadOwner = currentOwnerRef.current;
 
-    const params = buildTaskQueryParams({
-      page,
-      statusFilter,
-      priorityFilter,
-      categoryFilter,
-      searchQuery,
-    });
+    const params = buildTaskQueryParams(parseTaskFilters(searchParamsRef.current));
 
     const cachedEntry = silent ? null : getPageCache(cacheKey);
     if (cachedEntry) {
@@ -276,7 +297,7 @@ export default function TaskList() {
       setError(getErrorMessage(e));
       setLoading(false);
     }
-  }, [page, statusFilter, priorityFilter, categoryFilter, searchQuery, cacheKey, setSearchParams]);
+  }, [page, cacheKey, setSearchParams]);
 
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -344,16 +365,44 @@ export default function TaskList() {
   }, [ownerKey, fetchCategories]);
 
   useEffect(() => {
+    let active = true;
+    getUserLookup()
+      .then((res) => {
+        if (active && isMountedRef.current) setAssignees(toArray(res));
+      })
+      .catch(() => {
+        // Assignee filter remains optional if lookup fails.
+      });
+    return () => {
+      active = false;
+    };
+  }, [ownerKey]);
+
+  useEffect(() => {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
 
   const updateFilter = (key, val) => {
-    const next = new URLSearchParams(searchParams);
+    const next = new URLSearchParams(searchParamsRef.current);
     if (val) next.set(key, val);
     else next.delete(key);
     next.set("page", "1");
     setSearchParams(next, { replace: key === "search" });
+  };
+
+  const updateSort = (nextSortBy, nextSortDir) => {
+    const next = new URLSearchParams(searchParamsRef.current);
+    if (nextSortBy && nextSortBy !== "createdAt") next.set("sortBy", nextSortBy);
+    else next.delete("sortBy");
+    if (nextSortDir && nextSortDir !== "desc") next.set("sortDir", nextSortDir);
+    else next.delete("sortDir");
+    next.set("page", "1");
+    setSearchParams(next);
+  };
+
+  const clearFilters = () => {
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
   const goToPage = (nextPage) => {
@@ -481,12 +530,7 @@ export default function TaskList() {
     }
   }, []);
 
-  const exportFilterParams = buildExportFilterParams({
-    statusFilter,
-    priorityFilter,
-    categoryFilter,
-    searchQuery,
-  });
+  const exportFilterParams = buildFilterQueryFields(filters);
 
   return (
     <>
@@ -514,49 +558,14 @@ export default function TaskList() {
         onRetry={() => void retryCategories()}
       />
 
-      <div className="filters-bar" role="search" aria-label="Filter tasks">
-        <input
-          type="search"
-          className="filter-input"
-          placeholder="Search by title, description, or assignee..."
-          value={searchQuery}
-          onChange={(e) => updateFilter("search", e.target.value)}
-        />
-        <select
-          className="filter-select"
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={(e) => updateFilter("status", e.target.value)}
-        >
-          <option value="">All statuses</option>
-          <option value="Pending">Pending</option>
-          <option value="InProgress">In Progress</option>
-          <option value="Completed">Completed</option>
-        </select>
-        <select
-          className="filter-select"
-          aria-label="Filter by priority"
-          value={priorityFilter}
-          onChange={(e) => updateFilter("priority", e.target.value)}
-        >
-          <option value="">All priorities</option>
-          <option value="Low">Low</option>
-          <option value="Medium">Medium</option>
-          <option value="High">High</option>
-          <option value="Critical">Critical</option>
-        </select>
-        <select
-          className="filter-select"
-          aria-label="Filter by category"
-          value={categoryFilter}
-          onChange={(e) => updateFilter("categoryId", e.target.value)}
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </div>
+      <TaskFiltersBar
+        filters={filters}
+        categories={categories}
+        assignees={assignees}
+        onUpdateFilter={updateFilter}
+        onUpdateSort={updateSort}
+        onClearFilters={clearFilters}
+      />
 
       {loading && !isCurrentData && !error && (
         <div className="form-card" aria-busy="true" aria-label="Loading tasks">

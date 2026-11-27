@@ -14,6 +14,13 @@ namespace TaskManager.Api.Services;
 
 public interface ITaskTransferService
 {
+    Task<TaskExportFileDto> ExportAsync(
+        Guid userId,
+        bool isAdmin,
+        string format,
+        TaskFilterParams filter,
+        CancellationToken cancellationToken = default);
+
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Matches task list query filter parameters for filtered export.")]
     Task<TaskExportFileDto> ExportAsync(
         Guid userId,
@@ -60,10 +67,7 @@ public sealed class TaskTransferService : ITaskTransferService
     }
 
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Matches task list query filter parameters for filtered export.")]
-    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
-    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
-    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
-    public async Task<TaskExportFileDto> ExportAsync(
+    public Task<TaskExportFileDto> ExportAsync(
         Guid userId,
         bool isAdmin,
         string format = "json",
@@ -72,18 +76,32 @@ public sealed class TaskTransferService : ITaskTransferService
         int? categoryId = null,
         Guid? assignedToId = null,
         string? search = null,
+        CancellationToken cancellationToken = default) =>
+        ExportAsync(
+            userId,
+            isAdmin,
+            format,
+            new TaskFilterParams(Status: status, Priority: priority, CategoryId: categoryId, AssignedToId: assignedToId, Search: search),
+            cancellationToken);
+
+    public async Task<TaskExportFileDto> ExportAsync(
+        Guid userId,
+        bool isAdmin,
+        string format,
+        TaskFilterParams filter,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(filter);
+
         var normalizedFormat = (format ?? "json").Trim().ToLowerInvariant();
         if (normalizedFormat is not ("json" or "csv"))
             throw new AppValidationException("Unsupported export format. Allowed formats: json, csv.");
 
-        var query = BuildFilteredQuery(userId, isAdmin, status, priority, categoryId, assignedToId, search);
-        var items = await query
-            .Include(t => t.Category)
-            .Include(t => t.AssignedTo)
-            .OrderByDescending(t => t.CreatedAt)
-            .ThenByDescending(t => t.Id)
+        var query = TaskService.ApplyFilters(db.Tasks.AsNoTracking(), userId, isAdmin, filter);
+        var items = await TaskService.ApplySorting(
+                query.Include(t => t.Category).Include(t => t.AssignedTo),
+                filter.SortBy,
+                filter.SortDir)
             .Select(t => new TaskExportItemDto(
                 t.Title,
                 t.Description,
@@ -183,43 +201,6 @@ public sealed class TaskTransferService : ITaskTransferService
             userId, importedCount, errors.Count, fileName);
 
         return new TaskImportResultDto(importedCount, errors.Count, errors);
-    }
-
-    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
-    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
-    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
-    private IQueryable<TaskItem> BuildFilteredQuery(
-        Guid userId,
-        bool isAdmin,
-        TaskItemStatus? status,
-        TaskPriority? priority,
-        int? categoryId,
-        Guid? assignedToId,
-        string? search)
-    {
-        var query = db.Tasks.AsNoTracking();
-
-        if (!isAdmin)
-            query = query.Where(t => t.CreatedById == userId || t.AssignedToId == userId);
-        if (status.HasValue)
-            query = query.Where(t => t.Status == status.Value);
-        if (priority.HasValue)
-            query = query.Where(t => t.Priority == priority.Value);
-        if (categoryId.HasValue)
-            query = query.Where(t => t.CategoryId == categoryId.Value);
-        if (assignedToId.HasValue)
-            query = query.Where(t => t.AssignedToId == assignedToId.Value);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim().ToLowerInvariant();
-            query = query.Where(t =>
-                t.Title.ToLower().Contains(term) ||
-                (t.Description != null && t.Description.ToLower().Contains(term)) ||
-                (t.AssignedTo != null && t.AssignedTo.FullName.ToLower().Contains(term)));
-        }
-
-        return query;
     }
 
     private static async Task<string> ReadStreamBoundedAsync(Stream stream, CancellationToken cancellationToken)

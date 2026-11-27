@@ -28,21 +28,13 @@ public class TaskTransferController : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Export(
         [FromQuery] string format = "json",
-        [FromQuery] Entities.TaskItemStatus? status = null,
-        [FromQuery] Entities.TaskPriority? priority = null,
-        [FromQuery] int? categoryId = null,
-        [FromQuery] Guid? assignedToId = null,
-        [FromQuery] string? search = null)
+        [FromQuery] TaskFilterParams? filter = null)
     {
         var exported = await transfer.ExportAsync(
             User.GetUserId(),
             User.IsAdmin(),
             format,
-            status,
-            priority,
-            categoryId,
-            assignedToId,
-            search,
+            filter ?? new TaskFilterParams(),
             HttpContext.RequestAborted);
 
         return File(exported.Content, exported.ContentType, exported.FileName);
