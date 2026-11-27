@@ -219,12 +219,10 @@ export default function TaskList() {
     if (cachedEntry) {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
-      if (
-        !categoriesLoadedRef.current &&
-        cachedEntry.categories?.length &&
-        categoriesRef.current.length === 0
-      ) {
-        setCategories(toArray(cachedEntry.categories));
+      if (!categoriesLoadedRef.current && cachedEntry.categories?.length) {
+        const cachedCats = toArray(cachedEntry.categories);
+        categoriesRef.current = cachedCats;
+        setCategories(cachedCats);
       }
       setLoading(false);
     } else {
@@ -280,6 +278,7 @@ export default function TaskList() {
       }
       const nextCats = toArray(catsRes);
       categoriesLoadedRef.current = true;
+      categoriesRef.current = nextCats;
       setCategories(nextCats);
       const currentEntry = getPageCache(cacheKeyRef.current);
       if (currentEntry) {

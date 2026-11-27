@@ -108,6 +108,8 @@ export function AuthProvider({ children, storage: storageProp }) {
   const sessionVersionRef = useRef(0);
   const logoutPromiseRef = useRef(null);
   const suppressStoredTokenRef = useRef(false);
+  const userRef = useRef(userState);
+  userRef.current = userState;
 
   const getSessionVersion = useCallback(() => sessionVersionRef.current, []);
 
@@ -151,10 +153,13 @@ export function AuthProvider({ children, storage: storageProp }) {
     setRestoreError("");
   }, [storage]);
 
-  const restoreSession = useCallback(async () => {
+  const restoreSession = useCallback(async (options) => {
+    const silent = Boolean(options?.silent);
     setActiveSessionStorage(storage);
     const version = sessionVersionRef.current;
-    setLoading(true);
+    if (!silent) {
+      setLoading(true);
+    }
     setRestoreError("");
 
     let attemptedToken = null;
@@ -184,7 +189,7 @@ export function AuthProvider({ children, storage: storageProp }) {
       if (sessionVersionRef.current !== version) return;
       await handleRestoreFailure(err, version, attemptedToken, restoreSession);
     } finally {
-      if (sessionVersionRef.current === version) {
+      if (!silent && sessionVersionRef.current === version) {
         setLoading(false);
       }
     }
@@ -220,7 +225,7 @@ export function AuthProvider({ children, storage: storageProp }) {
 
     const unsubscribeRecovery = subscribeStorageRecovery(() => {
       if (!suppressStoredTokenRef.current) {
-        void restoreSession();
+        void restoreSession({ silent: Boolean(userRef.current) });
       }
     });
 
