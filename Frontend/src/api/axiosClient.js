@@ -7,7 +7,17 @@ const client = axios.create({
 });
 const PUBLIC_PATHS = ["/auth/login", "/auth/register"];
 
+const isPublicAuthRequest = (config) => {
+  const method = (config?.method ?? "get").toLowerCase();
+  const url = config?.url ?? "";
+  return method === "post" && PUBLIC_PATHS.some((p) => url === p || url.endsWith(p));
+};
+
 client.interceptors.request.use(async (config) => {
+  if (isPublicAuthRequest(config)) {
+    config._requestToken = null;
+    return config;
+  }
   const token = await getActiveSessionStorage().getToken();
   config._requestToken = token;
   if (token) config.headers.Authorization = `Bearer ${token}`;
@@ -17,8 +27,7 @@ client.interceptors.request.use(async (config) => {
 client.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const url = error.config?.url ?? "";
-    const isPublic = PUBLIC_PATHS.some((p) => url.includes(p));
+    const isPublic = isPublicAuthRequest(error.config);
     const requestToken = error.config?._requestToken;
     const storage = getActiveSessionStorage();
     // A wrong password also returns 401: keep the page so the message stays visible.

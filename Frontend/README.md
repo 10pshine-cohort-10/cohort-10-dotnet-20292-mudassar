@@ -29,6 +29,31 @@ VITE_API_BASE_URL=https://localhost:5001/api
 
 > Make sure the backend CORS policy allows `http://localhost:5173`.
 
+### Local HTTPS Development Certificate
+
+The Vite dev proxy connects to `https://localhost:5001` with TLS certificate verification enabled. Before starting `npm run dev` against the local HTTPS backend, trust and export the ASP.NET Core development certificate so Node trusts it:
+
+```powershell
+dotnet dev-certs https --trust
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aspnet\https" | Out-Null
+dotnet dev-certs https -ep "$env:USERPROFILE\.aspnet\https\dev-cert.pem" --format Pem --no-password
+icacls "$env:USERPROFILE\.aspnet\https\dev-cert.key" /inheritance:r /grant:r "${env:USERNAME}:(R,W)" | Out-Null
+$env:NODE_EXTRA_CA_CERTS = "$env:USERPROFILE\.aspnet\https\dev-cert.pem"
+npm run dev
+```
+
+Or on bash/macOS/Linux:
+
+```bash
+dotnet dev-certs https --trust
+mkdir -p "$HOME/.aspnet/https" && chmod 700 "$HOME/.aspnet/https"
+dotnet dev-certs https -ep "$HOME/.aspnet/https/dev-cert.pem" --format Pem --no-password
+chmod 600 "$HOME/.aspnet/https/dev-cert.key"
+NODE_EXTRA_CA_CERTS="$HOME/.aspnet/https/dev-cert.pem" npm run dev
+```
+
+You can also point `VITE_DEV_CA_CERT` to the exported `.pem` file (or override the proxy target via `VITE_DEV_API_TARGET`).
+
 ## Scripts
 
 | Command | Purpose |

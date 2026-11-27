@@ -52,13 +52,141 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const computeTotalPages = (res) =>
   res.totalPages || Math.ceil((res.totalCount || 0) / PAGE_SIZE);
 
+const settleLookup = (promise) =>
+  promise.then(
+    (value) => ({ ok: true, value }),
+    (reason) => ({ ok: false, reason })
+  );
+
+function resolveCategoriesFromOutcome(catsOutcome, fallbackCategories, setCategories, setCategoryError) {
+  if (catsOutcome.ok) {
+    const nextCats = toArray(catsOutcome.value);
+    setCategories(nextCats);
+    setCategoryError("");
+    return nextCats;
+  }
+  setCategoryError(getErrorMessage(catsOutcome.reason));
+  return toArray(fallbackCategories);
+}
+
+const isStaleLoad = ({ isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner }) =>
+  !isMountedRef.current ||
+  signal.aborted ||
+  requestGenRef.current !== gen ||
+  currentOwnerRef.current !== loadOwner;
+
+const invalidateOwnerCaches = (owner) => {
+  deletePageCacheByPrefix(`tasks:${owner}:`);
+  deletePageCacheByPrefix(`dashboard:${owner}`);
+};
+
+function CategoryErrorAlert({ categoryError, retryingCategories, onRetry }) {
+  if (!categoryError) return null;
+  return (
+    <div className="alert error" role="alert">
+      <span>{categoryError}</span>
+      <div className="row-actions">
+        <button
+          type="button"
+          className="retry"
+          disabled={retryingCategories}
+          onClick={onRetry}
+        >
+          {retryingCategories ? "Retrying..." : "Retry categories"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TaskRow({
+  task,
+  allowDelete,
+  statusPending,
+  deletePending,
+  onStatusChange,
+  onDelete,
+}) {
+  return (
+    <tr>
+      <td>
+        <Link className="task-title-link" to={`/tasks/${task.id}`}>{task.title}</Link>
+      </td>
+      <td>{task.categoryName || <span className="muted">Uncategorized</span>}</td>
+      <td>{task.assignedToName || <span className="muted">Unassigned</span>}</td>
+      <td><PriorityBadge priority={task.priority} /></td>
+      <td>
+        <div className="status-cell">
+          <StatusBadge status={task.status} />
+          <select
+            className="status-quick-select"
+            aria-label={`Change status for ${task.title}`}
+            value={task.status}
+            disabled={statusPending}
+            onChange={(e) => onStatusChange(task, e.target.value)}
+          >
+            <option value="Pending">Pending</option>
+            <option value="InProgress">In Progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </div>
+      </td>
+      <td className={isOverdue(task.dueDate, task.status) ? "due overdue" : "due"}>
+        {fmtDate(task.dueDate)}
+      </td>
+      <td>
+        <div className="row-actions">
+          <Link to={`/tasks/${task.id}`} className="btn-ghost btn-sm">View</Link>
+          <Link to={`/tasks/${task.id}/edit`} className="btn-ghost btn-sm">Edit</Link>
+          {allowDelete && (
+            <button
+              type="button"
+              className="btn-ghost btn-sm btn-danger"
+              disabled={deletePending}
+              onClick={() => onDelete(task)}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function TaskPagination({ page, totalPages, onPageChange }) {
+  if (totalPages <= 1) return null;
+  return (
+    <nav className="pagination" aria-label="Task pagination">
+      <button
+        type="button"
+        className="btn-ghost btn-sm"
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+      >
+        Previous
+      </button>
+      <span className="muted">Page {page} of {totalPages}</span>
+      <button
+        type="button"
+        className="btn-ghost btn-sm"
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+      >
+        Next
+      </button>
+    </nav>
+  );
+}
+
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const { statusFilter, priorityFilter, categoryFilter, searchQuery, page } =
     parseTaskFilters(searchParams);
 
-  const userCachePrefix = `tasks:${user?.id ?? "anon"}:`;
+  const ownerKey = user?.id ?? "anon";
+  const userCachePrefix = `tasks:${ownerKey}:`;
   const cacheKey = `${userCachePrefix}${page}:${statusFilter}:${priorityFilter}:${categoryFilter}:${searchQuery}`;
   const cached = getPageCache(cacheKey);
 
@@ -70,20 +198,30 @@ export default function TaskList() {
   const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set());
   const pendingDeleteIdsRef = useRef(new Set());
   const [error, setError] = useState("");
+  const [categoryError, setCategoryError] = useState("");
+  const [retryingCategories, setRetryingCategories] = useState(false);
 
+  const isMountedRef = useRef(true);
   const controllerRef = useRef(null);
   const requestGenRef = useRef(0);
+  const categoryGenRef = useRef(0);
   const searchParamsRef = useRef(searchParams);
   searchParamsRef.current = searchParams;
   const cacheKeyRef = useRef(cacheKey);
   cacheKeyRef.current = cacheKey;
+  const currentOwnerRef = useRef(ownerKey);
+  currentOwnerRef.current = ownerKey;
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
 
   const load = useCallback(async () => {
+    if (!isMountedRef.current) return;
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
     const { signal } = controller;
     const gen = ++requestGenRef.current;
+    const loadOwner = currentOwnerRef.current;
 
     const params = buildTaskQueryParams({
       page,
@@ -98,6 +236,7 @@ export default function TaskList() {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
       setCategories(toArray(cachedEntry.categories));
+      setCategoryError("");
       setLoading(false);
     } else {
       setLoading(true);
@@ -105,13 +244,13 @@ export default function TaskList() {
 
     setError("");
     try {
-      const [tasksRes, catsRes] = await Promise.all([
+      const [tasksRes, catsOutcome] = await Promise.all([
         getTasks(params, { signal }),
-        getCategories().catch(() => []),
+        settleLookup(getCategories()),
       ]);
-      if (signal.aborted || requestGenRef.current !== gen) return;
+      const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
+      if (isStaleLoad(staleCtx)) return;
       const nextData = tasksRes ?? EMPTY_DATA;
-      const nextCats = toArray(catsRes);
       const computedTotalPages = computeTotalPages(nextData);
       if (computedTotalPages > 0 && page > computedTotalPages) {
         const clamped = new URLSearchParams(searchParamsRef.current);
@@ -119,13 +258,19 @@ export default function TaskList() {
         setSearchParams(clamped, { replace: true });
         return;
       }
+      const nextCats = resolveCategoriesFromOutcome(
+        catsOutcome,
+        categoriesRef.current,
+        setCategories,
+        setCategoryError
+      );
       setData(nextData);
       setDataKey(cacheKey);
-      setCategories(nextCats);
       setLoading(false);
       setPageCache(cacheKey, { data: nextData, categories: nextCats });
     } catch (e) {
-      if (signal.aborted || requestGenRef.current !== gen || isCanceledError(e)) {
+      const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
+      if (isStaleLoad(staleCtx) || isCanceledError(e)) {
         return;
       }
       setError(getErrorMessage(e));
@@ -135,6 +280,56 @@ export default function TaskList() {
 
   const loadRef = useRef(load);
   loadRef.current = load;
+
+  const retryCategories = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    const gen = ++categoryGenRef.current;
+    const retryOwner = currentOwnerRef.current;
+    setRetryingCategories(true);
+    setCategoryError("");
+    try {
+      const catsRes = await getCategories();
+      if (
+        !isMountedRef.current ||
+        categoryGenRef.current !== gen ||
+        currentOwnerRef.current !== retryOwner
+      ) {
+        return;
+      }
+      const nextCats = toArray(catsRes);
+      setCategories(nextCats);
+      const currentEntry = getPageCache(cacheKeyRef.current);
+      if (currentEntry) {
+        setPageCache(cacheKeyRef.current, { ...currentEntry, categories: nextCats });
+      }
+    } catch (e) {
+      if (
+        !isMountedRef.current ||
+        categoryGenRef.current !== gen ||
+        currentOwnerRef.current !== retryOwner
+      ) {
+        return;
+      }
+      setCategoryError(getErrorMessage(e));
+    } finally {
+      if (isMountedRef.current && categoryGenRef.current === gen) {
+        setRetryingCategories(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    const controller = controllerRef;
+    const reqGen = requestGenRef;
+    const catGen = categoryGenRef;
+    return () => {
+      isMountedRef.current = false;
+      controller.current?.abort();
+      reqGen.current += 1;
+      catGen.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     void load();
@@ -155,30 +350,35 @@ export default function TaskList() {
     setSearchParams(next);
   };
 
+  const canReloadForOwner = (owner) =>
+    isMountedRef.current && currentOwnerRef.current === owner;
+
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;
-    const originatingUserIdKey = user?.id ?? "anon";
+    const originatingOwner = currentOwnerRef.current;
     setError("");
     setPendingStatusIds((prev) => new Set(prev).add(task.id));
     try {
       const updated = await updateTaskStatus(task.id, newStatus);
+      invalidateOwnerCaches(originatingOwner);
+      if (!canReloadForOwner(originatingOwner)) return;
       setData((prev) => ({
         ...prev,
         items: (prev.items ?? []).map((item) => (item.id === task.id ? updated : item)),
       }));
-      deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
-      deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
       // Invalidate any in-flight read and reload via the latest load ref.
       requestGenRef.current += 1;
       await loadRef.current();
     } catch (e) {
-      setError(getErrorMessage(e));
+      if (isMountedRef.current) setError(getErrorMessage(e));
     } finally {
-      setPendingStatusIds((prev) => {
-        const next = new Set(prev);
-        next.delete(task.id);
-        return next;
-      });
+      if (isMountedRef.current) {
+        setPendingStatusIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+      }
     }
   };
 
@@ -186,12 +386,14 @@ export default function TaskList() {
     if (pendingDeleteIdsRef.current.has(task.id) || pendingDeleteIds.has(task.id)) return;
     if (!window.confirm(`Delete task "${task.title}"?`)) return;
     const originatingCacheKey = cacheKeyRef.current;
-    const originatingUserIdKey = user?.id ?? "anon";
+    const originatingOwner = currentOwnerRef.current;
     pendingDeleteIdsRef.current.add(task.id);
     setPendingDeleteIds((prev) => new Set(prev).add(task.id));
     setError("");
     try {
       await deleteTask(task.id);
+      invalidateOwnerCaches(originatingOwner);
+      if (!canReloadForOwner(originatingOwner)) return;
       if (cacheKeyRef.current === originatingCacheKey) {
         setData((prev) => ({
           ...prev,
@@ -199,19 +401,19 @@ export default function TaskList() {
           totalCount: Math.max(0, (prev.totalCount || 0) - 1),
         }));
       }
-      deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
-      deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
       requestGenRef.current += 1;
       await loadRef.current();
     } catch (e) {
-      setError(getErrorMessage(e));
+      if (isMountedRef.current) setError(getErrorMessage(e));
     } finally {
       pendingDeleteIdsRef.current.delete(task.id);
-      setPendingDeleteIds((prev) => {
-        const next = new Set(prev);
-        next.delete(task.id);
-        return next;
-      });
+      if (isMountedRef.current) {
+        setPendingDeleteIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+      }
     }
   };
 
@@ -229,6 +431,11 @@ export default function TaskList() {
       />
 
       <ErrorAlert message={error} onClose={() => setError("")} />
+      <CategoryErrorAlert
+        categoryError={categoryError}
+        retryingCategories={retryingCategories}
+        onRetry={() => void retryCategories()}
+      />
 
       <div className="filters-bar" role="search" aria-label="Filter tasks">
         <input
@@ -307,75 +514,21 @@ export default function TaskList() {
               </thead>
               <tbody>
                 {items.map((t) => (
-                  <tr key={t.id}>
-                    <td>
-                      <Link className="task-title-link" to={`/tasks/${t.id}`}>{t.title}</Link>
-                    </td>
-                    <td>{t.categoryName || <span className="muted">Uncategorized</span>}</td>
-                    <td>{t.assignedToName || <span className="muted">Unassigned</span>}</td>
-                    <td><PriorityBadge priority={t.priority} /></td>
-                    <td>
-                      <div className="status-cell">
-                        <StatusBadge status={t.status} />
-                        <select
-                          className="status-quick-select"
-                          aria-label={`Change status for ${t.title}`}
-                          value={t.status}
-                          disabled={pendingStatusIds.has(t.id)}
-                          onChange={(e) => handleStatusChange(t, e.target.value)}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="InProgress">In Progress</option>
-                          <option value="Completed">Completed</option>
-                        </select>
-                      </div>
-                    </td>
-                    <td className={isOverdue(t.dueDate, t.status) ? "due overdue" : "due"}>
-                      {fmtDate(t.dueDate)}
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <Link to={`/tasks/${t.id}`} className="btn-ghost btn-sm">View</Link>
-                        <Link to={`/tasks/${t.id}/edit`} className="btn-ghost btn-sm">Edit</Link>
-                        {canDelete(t) && (
-                          <button
-                            type="button"
-                            className="btn-ghost btn-sm btn-danger"
-                            disabled={pendingDeleteIds.has(t.id)}
-                            onClick={() => handleDelete(t)}
-                          >
-                            Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    allowDelete={canDelete(t)}
+                    statusPending={pendingStatusIds.has(t.id)}
+                    deletePending={pendingDeleteIds.has(t.id)}
+                    onStatusChange={handleStatusChange}
+                    onDelete={handleDelete}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
 
-          {totalPages > 1 && (
-            <nav className="pagination" aria-label="Task pagination">
-              <button
-                type="button"
-                className="btn-ghost btn-sm"
-                disabled={page <= 1}
-                onClick={() => goToPage(page - 1)}
-              >
-                Previous
-              </button>
-              <span className="muted">Page {page} of {totalPages}</span>
-              <button
-                type="button"
-                className="btn-ghost btn-sm"
-                disabled={page >= totalPages}
-                onClick={() => goToPage(page + 1)}
-              >
-                Next
-              </button>
-            </nav>
-          )}
+          <TaskPagination page={page} totalPages={totalPages} onPageChange={goToPage} />
         </>
       )}
     </>

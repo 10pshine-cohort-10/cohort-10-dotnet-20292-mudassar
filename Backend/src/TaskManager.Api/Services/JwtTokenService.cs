@@ -26,7 +26,8 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
 {
     public const string SecurityStampClaimType = "security_stamp";
 
-    private readonly JwtOptions _o = options.Value;
+    private readonly JwtOptions _o = (options ?? throw new ArgumentNullException(nameof(options))).Value
+        ?? throw new ArgumentNullException(nameof(options), "JwtOptions value cannot be null.");
 
     public (string Token, DateTime ExpiresAt) Create(ApplicationUser user, IList<string> roles)
     {

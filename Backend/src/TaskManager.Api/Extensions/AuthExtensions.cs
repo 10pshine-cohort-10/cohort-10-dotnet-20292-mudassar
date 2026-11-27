@@ -98,6 +98,10 @@ public static class AuthExtensions
                     OnChallenge = async ctx =>                     // 401 -> ProblemDetails
                     {
                         ctx.HandleResponse();
+                        if (!ctx.Response.HasStarted && !ctx.Response.Headers.ContainsKey("WWW-Authenticate"))
+                        {
+                            ctx.Response.Headers.WWWAuthenticate = "Bearer";
+                        }
                         await ProblemWriter.WriteAsync(ctx.HttpContext, StatusCodes.Status401Unauthorized,
                             "Missing, invalid or expired token.");
                     },
@@ -115,6 +119,9 @@ public static class AuthExtensions
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
+        services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<IDashboardService, DashboardService>();
 
         services.AddRateLimiter(o =>
         {

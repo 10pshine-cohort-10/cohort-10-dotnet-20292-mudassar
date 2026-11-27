@@ -171,11 +171,17 @@ export function subscribeTokenChanges(listener) {
 }
 
 const IDB_OPEN_TIMEOUT_MS = 3000;
-let useMemoryOnly = false;
+let indexedDbUnavailable = false;
+let everOpenedIndexedDb = false;
+let transientOpenTimeout = false;
 
-function openAuthDb({ throwOnTimeout = false } = {}) {
+function openAuthDb({ forCleanup = false } = {}) {
   return new Promise((resolve, reject) => {
-    if (useMemoryOnly || typeof indexedDB === "undefined") {
+    if (typeof indexedDB === "undefined" || indexedDbUnavailable) {
+      resolve(null);
+      return;
+    }
+    if (!forCleanup && transientOpenTimeout) {
       resolve(null);
       return;
     }
@@ -183,11 +189,11 @@ function openAuthDb({ throwOnTimeout = false } = {}) {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      if (throwOnTimeout) {
+      transientOpenTimeout = true;
+      if (forCleanup) {
         reject(new Error("Timed out opening IndexedDB."));
         return;
       }
-      useMemoryOnly = true;
       resolve(null);
     }, IDB_OPEN_TIMEOUT_MS);
 
@@ -206,20 +212,30 @@ function openAuthDb({ throwOnTimeout = false } = {}) {
           return;
         }
         settled = true;
+        everOpenedIndexedDb = true;
+        transientOpenTimeout = false;
         resolve(req.result);
       };
       req.onerror = () => {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        useMemoryOnly = true;
+        if (forCleanup && (everOpenedIndexedDb || transientOpenTimeout)) {
+          reject(req.error ?? new Error("Failed to open IndexedDB."));
+          return;
+        }
+        indexedDbUnavailable = true;
         resolve(null);
       };
-    } catch {
+    } catch (err) {
       clearTimeout(timer);
       if (!settled) {
         settled = true;
-        useMemoryOnly = true;
+        if (forCleanup && (everOpenedIndexedDb || transientOpenTimeout)) {
+          reject(err instanceof Error ? err : new Error("Failed to open IndexedDB."));
+          return;
+        }
+        indexedDbUnavailable = true;
         resolve(null);
       }
     }
@@ -328,7 +344,7 @@ export const defaultSessionStorage = {
     applyWinningMetaInMemory(incomingMeta);
     let shouldNotify = true;
     try {
-      const db = await openAuthDb({ throwOnTimeout: true });
+      const db = await openAuthDb({ forCleanup: true });
       if (!db) {
         return;
       }
@@ -346,7 +362,7 @@ export const defaultSessionStorage = {
   },
   async removeTokenIfMatch(expectedToken) {
     if (!expectedToken) return false;
-    const db = await openAuthDb();
+    const db = await openAuthDb({ forCleanup: true });
     if (!db) {
       const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
       if (!loggedOutOverride && current.token === expectedToken) {
@@ -369,16 +385,18 @@ export const defaultSessionStorage = {
       getReq.onsuccess = () => {
         const current = extractStoredRecord(getReq.result);
         const hasInMemoryState = memoryFallback.has(TOKEN_KEY) || latestWriteMeta.revision > 0;
-        const inMemoryToken = hasInMemoryState
-          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY)).token
-          : current.token;
-        if (
-          !loggedOutOverride &&
-          current.token === expectedToken &&
-          inMemoryToken === expectedToken
-        ) {
+        const inMemoryRecord = hasInMemoryState
+          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY))
+          : null;
+        const inMemoryWins = Boolean(
+          inMemoryRecord?.meta &&
+            (!current.meta || compareWriteMeta(inMemoryRecord.meta, current.meta) > 0)
+        );
+        const effectiveRecord = inMemoryWins ? inMemoryRecord : current;
+        const inMemoryMatches = !hasInMemoryState || inMemoryRecord.token === expectedToken;
+        if (!loggedOutOverride && effectiveRecord.token === expectedToken && inMemoryMatches) {
           matched = true;
-          nextMeta = createNextWriteMeta(null, current.meta);
+          nextMeta = createNextWriteMeta(null, effectiveRecord.meta);
           putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
         }
       };

@@ -11,8 +11,33 @@ import TaskDetail from "./pages/TaskDetail";
 import Profile from "./pages/Profile";
 
 function PublicOnly() {
-  const { user, loading } = useAuth();
-  if (loading) return null;
+  const { user, loading, restoreError, retryRestore, logout } = useAuth();
+  if (loading) {
+    return (
+      <p role="status" aria-live="polite" style={{ padding: 24 }}>
+        Loading...
+      </p>
+    );
+  }
+  if (!user && restoreError) {
+    return (
+      <div className="app">
+        <div className="page">
+          <div className="alert error" role="alert">
+            <p>{restoreError}</p>
+            <div className="row-actions">
+              <button type="button" className="retry" onClick={() => void retryRestore()}>
+                Retry
+              </button>
+              <button type="button" className="retry" onClick={() => void logout().catch(() => {})}>
+                Sign in again
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return user ? <Navigate to="/dashboard" replace /> : <Outlet />;
 }
 

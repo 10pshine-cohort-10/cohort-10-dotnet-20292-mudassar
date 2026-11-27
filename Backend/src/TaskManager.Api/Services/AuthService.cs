@@ -25,8 +25,18 @@ public class AuthService(
 
     public async Task<UserInfoDto> RegisterAsync(RegisterDto dto)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+        if (string.IsNullOrWhiteSpace(dto.Email))
+            throw new AppValidationException("Email is required.");
+        if (string.IsNullOrWhiteSpace(dto.FullName))
+            throw new AppValidationException("Full name is required.");
+        if (string.IsNullOrEmpty(dto.Password))
+            throw new AppValidationException("Password is required.");
+
         var email = dto.Email.Trim();
         var fullName = dto.FullName.Trim();
+        if (fullName.Length < 2 || fullName.Length > 100)
+            throw new AppValidationException("Full name must be between 2 and 100 characters.");
 
         var user = new ApplicationUser
         {
@@ -111,6 +121,13 @@ public class AuthService(
 
     public async Task<AuthResponse> LoginAsync(LoginDto dto)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+        if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrEmpty(dto.Password))
+        {
+            log.LogWarning("Failed login: missing email or password");
+            throw new UnauthorizedException(InvalidCredentials);
+        }
+
         var user = await users.FindByEmailAsync(dto.Email.Trim());
         if (user is null || !user.IsActive)
         {
@@ -154,6 +171,8 @@ public class AuthService(
 
     public async Task<UserInfoDto> UpdateProfileAsync(Guid userId, UpdateProfileDto dto)
     {
+        ArgumentNullException.ThrowIfNull(dto);
+
         var user = await users.FindByIdAsync(userId.ToString());
         if (user is null)
         {

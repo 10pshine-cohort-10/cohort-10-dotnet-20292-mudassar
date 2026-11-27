@@ -20,7 +20,7 @@ export default function ProtectedRoute({ adminOnly = false }) {
               <button type="button" className="retry" onClick={() => void retryRestore()}>
                 Retry
               </button>
-              <button type="button" className="retry" onClick={() => void logout()}>
+              <button type="button" className="retry" onClick={() => void logout().catch(() => {})}>
                 Sign in again
               </button>
             </div>
