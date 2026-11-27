@@ -252,7 +252,7 @@ public sealed class TaskTransferService : ITaskTransferService
         foreach (var item in items)
         {
             var due = item.DueDate.HasValue
-                ? item.DueDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                ? item.DueDate.Value.ToString("O", CultureInfo.InvariantCulture)
                 : string.Empty;
 
             sb.Append(EscapeCsvField(item.Title)).Append(',')
@@ -478,7 +478,7 @@ public sealed class TaskTransferService : ITaskTransferService
             index++;
         }
 
-        return index;
+        throw new AppValidationException("Invalid CSV format: unterminated quoted field.");
     }
 
     private static string? TryBuildTaskEntity(

@@ -14,6 +14,7 @@ public sealed class TaskTransferEndpointsTests : IClassFixture<TestApiFactory>
 
     public TaskTransferEndpointsTests(TestApiFactory factory)
     {
+        ArgumentNullException.ThrowIfNull(factory);
         _client = factory.CreateClient();
     }
 

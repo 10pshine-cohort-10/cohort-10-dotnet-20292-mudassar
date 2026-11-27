@@ -165,6 +165,10 @@ public sealed class TaskTransferServiceTests : IAsyncLifetime, IDisposable
         await using var badJson = new MemoryStream(Encoding.UTF8.GetBytes("{ not json"));
         await Assert.ThrowsAsync<AppValidationException>(() =>
             sut.ImportAsync(badJson, "tasks.json", _owner.Id));
+
+        await using var unterminatedCsv = new MemoryStream(Encoding.UTF8.GetBytes("Title,Description\n\"Unterminated,desc"));
+        await Assert.ThrowsAsync<AppValidationException>(() =>
+            sut.ImportAsync(unterminatedCsv, "tasks.csv", _owner.Id));
     }
 
     [Fact]
