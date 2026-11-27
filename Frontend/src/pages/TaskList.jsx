@@ -101,9 +101,9 @@ const invalidateOwnerCaches = (owner) => {
   deletePageCacheByPrefix(`dashboard:${owner}`);
 };
 
-function shouldReloadForRealtimeStatus(items, event, statusFilter) {
+function shouldReloadForRealtimeStatus(items, event, statusFilter, overdueOnly) {
   const hasTask = items.some((item) => item.id === event.taskId);
-  if (hasTask) return true;
+  if (hasTask || overdueOnly) return true;
   if (!statusFilter) return false;
   return event.oldStatus === statusFilter || event.newStatus === statusFilter;
 }
@@ -211,7 +211,7 @@ export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = parseTaskFilters(searchParams);
-  const { statusFilter, page } = filters;
+  const { statusFilter, overdueOnly, page } = filters;
 
   const ownerKey = user?.id ?? "anon";
   const userCachePrefix = `tasks:${ownerKey}:`;
@@ -420,12 +420,12 @@ export default function TaskList() {
       invalidateOwnerCaches(currentOwnerRef.current);
 
       const currentItems = dataRef.current?.items ?? [];
-      if (shouldReloadForRealtimeStatus(currentItems, event, statusFilter)) {
+      if (shouldReloadForRealtimeStatus(currentItems, event, statusFilter, overdueOnly)) {
         requestGenRef.current += 1;
         void loadRef.current({ silent: true });
       }
     },
-    [statusFilter]
+    [statusFilter, overdueOnly]
   );
 
   const handleRealtimeReconnected = useCallback(() => {

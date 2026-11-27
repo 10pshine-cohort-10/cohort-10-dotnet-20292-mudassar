@@ -164,7 +164,10 @@ export default function TaskFiltersBar({
           <button
             type="button"
             className="btn-ghost btn-sm"
-            onClick={onClearFilters}
+            onClick={() => {
+              setSearchInput("");
+              onClearFilters();
+            }}
           >
             Clear filters ({activeCount})
           </button>

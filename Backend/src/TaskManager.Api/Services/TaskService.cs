@@ -144,8 +144,16 @@ public class TaskService : ITaskService
 
         if (filter.DueTo.HasValue)
         {
-            var toExclusive = filter.DueTo.Value.Date.AddDays(1);
-            query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value < toExclusive);
+            var dueToDate = filter.DueTo.Value.Date;
+            if (dueToDate == DateTime.MaxValue.Date)
+            {
+                query = query.Where(t => t.DueDate.HasValue);
+            }
+            else
+            {
+                var toExclusive = dueToDate.AddDays(1);
+                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value < toExclusive);
+            }
         }
 
         if (filter.OverdueOnly)
