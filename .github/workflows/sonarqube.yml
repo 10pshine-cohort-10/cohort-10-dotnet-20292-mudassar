@@ -39,6 +39,11 @@ jobs:
       - name: Build & Test C# Backend (offline quality gate always runs)
         run: |
           dotnet build Backend/TaskManager.sln -c Release
+          export Jwt__Key="ci-$(openssl rand -hex 24)"
+          export SeedAdmin__Email="admin@ci.taskmanager.local"
+          export SeedAdmin__Password="CiAdmin!$(openssl rand -hex 8)9"
+          export SeedUser__Email="user@ci.taskmanager.local"
+          export SeedUser__Password="CiUser!$(openssl rand -hex 8)9"
           dotnet test Backend/TaskManager.sln -c Release --no-build --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
       - name: Lint & Build React Frontend
