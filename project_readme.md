@@ -12,7 +12,7 @@ TaskFlow is a full-stack task management application built with **ASP.NET Core (
 | **Database & ORM** | SQL Server, Entity Framework Core 10, Fluent API configurations, Soft-Delete interceptor, `RowVersion` optimistic concurrency |
 | **Logging & Error Handling** | Serilog (Async Console + Rolling Daily File sinks), RFC 7807 `ProblemDetails` global exception middleware |
 | **Frontend** | React 18, Vite 5, React Router 6, Axios, React Hook Form, Zod, CSS custom properties (Light/Dark theme) |
-| **Testing** | xUnit, Moq, `WebApplicationFactory<Program>`, EF Core InMemory & SQLite in-memory (106 unit & integration tests) |
+| **Testing** | xUnit, Moq, `WebApplicationFactory<Program>`, EF Core (106 unit & integration tests) |
 | **Code Quality & CI** | Roslyn Analyzers (`Directory.Build.props`), `.editorconfig` (SonarAnalyzer C# rules), ESLint (SonarJS-aligned rules), SonarQube + GitHub Actions |
 
 ---
@@ -204,25 +204,6 @@ Copy `.env.example` to `.env` in the repository root and fill in your SQL Server
 Copy-Item .env.example .env
 ```
 
-Key variables in `.env`:
-```env
-ASPNETCORE_ENVIRONMENT=Development
-ConnectionStrings__DefaultConnection=Server=localhost;Database=TaskManagerDb;User Id=sa;Password=YOUR_PASSWORD;TrustServerCertificate=True
-Jwt__Issuer=TaskManager
-Jwt__Audience=TaskManagerClient
-Jwt__Key=REPLACE_WITH_AT_LEAST_32_CHAR_RANDOM_SECRET_KEY
-Jwt__ExpiryMinutes=60
-SeedAdmin__Email=admin@taskmanager.local
-SeedAdmin__FullName=System Admin
-SeedAdmin__Password=StrongAdminPassword!1
-SeedUser__Email=user@taskmanager.local
-SeedUser__FullName=Test User
-SeedUser__Password=StrongUserPassword!1
-Cors__Origins__0=http://localhost:5173
-RateLimiting__AuthPermitLimit=10
-VITE_API_BASE_URL=https://localhost:5001/api
-```
-
 ---
 
 ### Step 2: Run the Backend API (.NET 10)
@@ -277,21 +258,6 @@ npm --prefix Frontend run lint -- --max-warnings=0
 
 # 4. Frontend production bundle build
 npm --prefix Frontend run build
-```
-
-#### Optional: Run Local SonarQube Dashboard
-
-```powershell
-# 1. Start local SonarQube + PostgreSQL on http://localhost:9000
-docker compose -f docker-compose.sonarqube.yml up -d
-
-# 2. Run the .NET SonarQube scan (after creating a token in SonarQube UI)
-$env:SONAR_HOST_URL = "http://localhost:9000"
-$env:SONAR_TOKEN = "<YOUR_SONAR_TOKEN>"
-.\scripts\run-sonar.ps1
-
-# 3. Optional: Run standalone Frontend SonarScanner
-npm --prefix Frontend run sonar -- "-Dsonar.host.url=http://localhost:9000" "-Dsonar.token=$env:SONAR_TOKEN"
 ```
 
 ---
