@@ -87,9 +87,11 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
 @keyframes pulse{50%{opacity:.5}}
 .empty{text-align:center;background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:48px 20px}
 .empty h2{margin:0 0 6px;font-size:1.2rem}.empty p{margin:0 0 18px;color:var(--soft)}
-.app .alert{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:var(--radius);font-size:.875rem;margin-bottom:20px}
+.app .alert{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:var(--radius);font-size:.875rem;margin-bottom:20px}
 .app .alert.error{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
-.app .alert p{margin:0;flex:1}.app .alert button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:1.1rem}
+.app .alert p,.app .alert span{margin:0;flex:1 1 200px;min-width:0;overflow-wrap:anywhere}
+.app .alert .row-actions{flex:0 1 auto;min-width:0;max-width:100%;flex-wrap:wrap}
+.app .alert button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:1.1rem}
 .app .alert button.retry,.retry{height:32px;padding:0 12px;border:1px solid currentColor;border-radius:8px;font:inherit;font-size:.82rem;font-weight:700}
 
 /* task management */

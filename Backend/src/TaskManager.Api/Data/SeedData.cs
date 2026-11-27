@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using TaskManager.Api.Entities;
 
 namespace TaskManager.Api.Data;
@@ -108,16 +109,12 @@ public static class SeedData
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
             return;
 
+        var isAdminSeed = string.Equals(role, Roles.Admin, StringComparison.Ordinal);
+
         var existingAccount = await users.FindByEmailAsync(email);
         if (existingAccount is not null)
         {
-            if (string.Equals(role, Roles.Admin, StringComparison.Ordinal)
-                && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
-            {
-                log.LogWarning(
-                    "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
-                    existingAccount.Id, Roles.Admin);
-            }
+            await ReportAdminSeedConflictIfNeededAsync(users, existingAccount, isAdminSeed, log);
             return;
         }
 
@@ -133,41 +130,22 @@ public static class SeedData
             ? await db.Database.BeginTransactionAsync()
             : null;
 
-        IdentityResult createResult;
-        try
-        {
-            createResult = await users.CreateAsync(account, password);
-        }
-        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
-        {
-            if (tx is not null)
-                await tx.RollbackAsync();
-
-            db.Entry(account).State = EntityState.Detached;
-            log.LogInformation(ex, "{Role} account was already seeded concurrently by another instance.", role);
+        var createResult = await TryCreateAccountAsync(db, tx, users, account, password, role, log);
+        if (createResult is null)
             return;
-        }
 
         if (!createResult.Succeeded)
         {
-            if (tx is not null)
-                await tx.RollbackAsync();
-
-            log.LogWarning("Could not seed {Role} account: {Errors}",
-                role, string.Join(" ", createResult.Errors.Select(e => e.Description)));
+            await RollbackAsync(tx);
+            db.Entry(account).State = EntityState.Detached;
+            await HandleCreateAccountFailureAsync(users, createResult, email, role, isAdminSeed, log);
             return;
         }
 
         var roleResult = await users.AddToRoleAsync(account, role);
         if (!roleResult.Succeeded)
         {
-            if (tx is not null)
-                await tx.RollbackAsync();
-            else
-                await users.DeleteAsync(account);
-
-            log.LogWarning("Could not assign {Role} role to seeded account {UserId}: {Errors}",
-                role, account.Id, string.Join(" ", roleResult.Errors.Select(e => e.Description)));
+            await HandleAssignRoleFailureAsync(tx, users, account, roleResult, role, isAdminSeed, log);
             return;
         }
 
@@ -175,5 +153,96 @@ public static class SeedData
             await tx.CommitAsync();
 
         log.LogInformation("Seeded {Role} account {UserId}", role, account.Id);
+    }
+
+    private static async Task<IdentityResult?> TryCreateAccountAsync(
+        AppDbContext db,
+        IDbContextTransaction? tx,
+        UserManager<ApplicationUser> users,
+        ApplicationUser account,
+        string password,
+        string role,
+        ILogger log)
+    {
+        try
+        {
+            return await users.CreateAsync(account, password);
+        }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            await RollbackAsync(tx);
+            db.Entry(account).State = EntityState.Detached;
+            log.LogInformation(ex, "{Role} account was already seeded concurrently by another instance.", role);
+            return null;
+        }
+    }
+
+    private static async Task HandleCreateAccountFailureAsync(
+        UserManager<ApplicationUser> users,
+        IdentityResult createResult,
+        string email,
+        string role,
+        bool isAdminSeed,
+        ILogger log)
+    {
+        var createErrors = string.Join(" ", createResult.Errors.Select(e => e.Description));
+        if (isAdminSeed)
+        {
+            var existingAfterFailure = await users.FindByEmailAsync(email);
+            if (existingAfterFailure is not null)
+            {
+                await ReportAdminSeedConflictIfNeededAsync(users, existingAfterFailure, isAdminSeed, log);
+                return;
+            }
+
+            throw new InvalidOperationException($"Could not seed the configured {role} account: {createErrors}");
+        }
+
+        log.LogWarning("Could not seed {Role} account: {Errors}", role, createErrors);
+    }
+
+    private static async Task HandleAssignRoleFailureAsync(
+        IDbContextTransaction? tx,
+        UserManager<ApplicationUser> users,
+        ApplicationUser account,
+        IdentityResult roleResult,
+        string role,
+        bool isAdminSeed,
+        ILogger log)
+    {
+        if (tx is not null)
+            await tx.RollbackAsync();
+        else
+            await users.DeleteAsync(account);
+
+        var roleErrors = string.Join(" ", roleResult.Errors.Select(e => e.Description));
+        if (isAdminSeed)
+            throw new InvalidOperationException(
+                $"Could not assign the {role} role to the configured seed account: {roleErrors}");
+
+        log.LogWarning("Could not assign {Role} role to seeded account {UserId}: {Errors}",
+            role, account.Id, roleErrors);
+    }
+
+    private static async Task RollbackAsync(IDbContextTransaction? tx)
+    {
+        if (tx is not null)
+            await tx.RollbackAsync();
+    }
+
+    private static async Task ReportAdminSeedConflictIfNeededAsync(
+        UserManager<ApplicationUser> users,
+        ApplicationUser existingAccount,
+        bool isAdminSeed,
+        ILogger log)
+    {
+        if (isAdminSeed
+            && (!existingAccount.IsActive || !await users.IsInRoleAsync(existingAccount, Roles.Admin)))
+        {
+            // Report the conflict but never promote an existing non-admin (or inactive) account automatically.
+            log.LogError(
+                "SeedAdmin configuration conflict: account {UserId} already exists for the configured admin email but is inactive or does not hold the {Role} role. Skipping automatic promotion.",
+                existingAccount.Id, Roles.Admin);
+        }
     }
 }

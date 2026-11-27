@@ -52,23 +52,6 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const computeTotalPages = (res) =>
   res.totalPages || Math.ceil((res.totalCount || 0) / PAGE_SIZE);
 
-const settleLookup = (promise) =>
-  promise.then(
-    (value) => ({ ok: true, value }),
-    (reason) => ({ ok: false, reason })
-  );
-
-function resolveCategoriesFromOutcome(catsOutcome, fallbackCategories, setCategories, setCategoryError) {
-  if (catsOutcome.ok) {
-    const nextCats = toArray(catsOutcome.value);
-    setCategories(nextCats);
-    setCategoryError("");
-    return nextCats;
-  }
-  setCategoryError(getErrorMessage(catsOutcome.reason));
-  return toArray(fallbackCategories);
-}
-
 const isStaleLoad = ({ isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner }) =>
   !isMountedRef.current ||
   signal.aborted ||
@@ -213,6 +196,7 @@ export default function TaskList() {
   currentOwnerRef.current = ownerKey;
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
+  const categoriesLoadedRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!isMountedRef.current) return;
@@ -235,8 +219,11 @@ export default function TaskList() {
     if (cachedEntry) {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
-      setCategories(toArray(cachedEntry.categories));
-      setCategoryError("");
+      if (!categoriesLoadedRef.current && cachedEntry.categories?.length) {
+        const cachedCats = toArray(cachedEntry.categories);
+        categoriesRef.current = cachedCats;
+        setCategories(cachedCats);
+      }
       setLoading(false);
     } else {
       setLoading(true);
@@ -244,10 +231,7 @@ export default function TaskList() {
 
     setError("");
     try {
-      const [tasksRes, catsOutcome] = await Promise.all([
-        getTasks(params, { signal }),
-        settleLookup(getCategories()),
-      ]);
+      const tasksRes = await getTasks(params, { signal });
       const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
       if (isStaleLoad(staleCtx)) return;
       const nextData = tasksRes ?? EMPTY_DATA;
@@ -258,16 +242,10 @@ export default function TaskList() {
         setSearchParams(clamped, { replace: true });
         return;
       }
-      const nextCats = resolveCategoriesFromOutcome(
-        catsOutcome,
-        categoriesRef.current,
-        setCategories,
-        setCategoryError
-      );
       setData(nextData);
       setDataKey(cacheKey);
       setLoading(false);
-      setPageCache(cacheKey, { data: nextData, categories: nextCats });
+      setPageCache(cacheKey, { data: nextData, categories: categoriesRef.current });
     } catch (e) {
       const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
       if (isStaleLoad(staleCtx) || isCanceledError(e)) {
@@ -281,22 +259,26 @@ export default function TaskList() {
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  const retryCategories = useCallback(async () => {
+  const fetchCategories = useCallback(async ({ isRetry = false } = {}) => {
     if (!isMountedRef.current) return;
     const gen = ++categoryGenRef.current;
-    const retryOwner = currentOwnerRef.current;
-    setRetryingCategories(true);
+    const fetchOwner = currentOwnerRef.current;
+    if (isRetry) {
+      setRetryingCategories(true);
+    }
     setCategoryError("");
     try {
       const catsRes = await getCategories();
       if (
         !isMountedRef.current ||
         categoryGenRef.current !== gen ||
-        currentOwnerRef.current !== retryOwner
+        currentOwnerRef.current !== fetchOwner
       ) {
         return;
       }
       const nextCats = toArray(catsRes);
+      categoriesLoadedRef.current = true;
+      categoriesRef.current = nextCats;
       setCategories(nextCats);
       const currentEntry = getPageCache(cacheKeyRef.current);
       if (currentEntry) {
@@ -306,17 +288,22 @@ export default function TaskList() {
       if (
         !isMountedRef.current ||
         categoryGenRef.current !== gen ||
-        currentOwnerRef.current !== retryOwner
+        currentOwnerRef.current !== fetchOwner
       ) {
         return;
       }
       setCategoryError(getErrorMessage(e));
     } finally {
-      if (isMountedRef.current && categoryGenRef.current === gen) {
+      if (isRetry && isMountedRef.current && categoryGenRef.current === gen) {
         setRetryingCategories(false);
       }
     }
   }, []);
+
+  const retryCategories = useCallback(
+    () => fetchCategories({ isRetry: true }),
+    [fetchCategories]
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -330,6 +317,11 @@ export default function TaskList() {
       catGen.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    categoriesLoadedRef.current = false;
+    void fetchCategories();
+  }, [ownerKey, fetchCategories]);
 
   useEffect(() => {
     void load();

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { getActiveAccountIdentity } from "../auth/tokenStorage";
 import { getMe, updateMe } from "../api/authApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import PageHeader from "../components/PageHeader";
@@ -11,21 +12,23 @@ function getInitials(name = "") {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "U";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  return `${parts[0][0]}${parts.at(-1)[0]}`.toUpperCase();
 }
 
 export default function Profile() {
-  const { user, setUser, getSessionVersion, logout } = useAuth();
+  const { user, setUser, getSessionVersion, retryRestore, logout } = useAuth();
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState(user);
   const [fullName, setFullName] = useState(user?.fullName ?? "");
+  const [nameError, setNameError] = useState("");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const hasInteractedRef = useRef(false);
   const logoutPromiseRef = useRef(null);
+  const editAccountIdentityRef = useRef(user?.id ?? getActiveAccountIdentity());
 
   // Operation: Get user info from backend and display
   useEffect(() => {
@@ -36,6 +39,7 @@ export default function Profile() {
         if (hasInteractedRef.current || getSessionVersion() !== sessionAtStart) return;
         setProfile(freshUser);
         setFullName(freshUser.fullName ?? "");
+        editAccountIdentityRef.current = freshUser.id ?? getActiveAccountIdentity();
         setUser?.(freshUser, sessionAtStart);
       })
       .catch((err) => {
@@ -78,23 +82,36 @@ export default function Profile() {
     hasInteractedRef.current = true;
     const trimmed = fullName.trim();
     if (trimmed.length < 2) {
-      setError("Full name must be at least 2 characters.");
+      setNameError("Full name must be at least 2 characters.");
       return;
     }
 
     const sessionAtStart = getSessionVersion();
+    const expectedAccountIdentity =
+      editAccountIdentityRef.current ?? profile?.id ?? user?.id ?? null;
     setSaving(true);
+    setNameError("");
     setError("");
     setSuccess("");
     try {
-      const updated = await updateMe({ fullName: trimmed });
+      const updated = await updateMe(
+        { fullName: trimmed },
+        { _expectedAccountIdentity: expectedAccountIdentity }
+      );
       if (getSessionVersion() !== sessionAtStart) return;
       setProfile(updated);
       setFullName(updated.fullName);
+      editAccountIdentityRef.current = updated.id ?? expectedAccountIdentity;
       setUser?.(updated, sessionAtStart);
       setEditing(false);
       setSuccess("Profile updated successfully.");
     } catch (err) {
+      if (err?.sessionChanged) {
+        setEditing(false);
+        setError("Your active session changed. Reconciling account state...");
+        await retryRestore?.();
+        return;
+      }
       if (getSessionVersion() === sessionAtStart) {
         setError(getErrorMessage(err));
       }
@@ -170,7 +187,14 @@ export default function Profile() {
               label="Update Full Name"
               value={fullName}
               disabled={saving}
-              onChange={(e) => setFullName(e.target.value)}
+              error={nameError}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setFullName(nextValue);
+                if (nameError && nextValue.trim().length >= 2) {
+                  setNameError("");
+                }
+              }}
               required
             />
             <div className="row-actions">
@@ -183,6 +207,7 @@ export default function Profile() {
                 disabled={saving}
                 onClick={() => {
                   setEditing(false);
+                  setNameError("");
                   setFullName(profile?.fullName ?? "");
                 }}
               >
@@ -197,6 +222,9 @@ export default function Profile() {
               className="btn-ghost"
               onClick={() => {
                 hasInteractedRef.current = true;
+                editAccountIdentityRef.current =
+                  profile?.id ?? user?.id ?? getActiveAccountIdentity();
+                setNameError("");
                 setEditing(true);
               }}
             >

@@ -7,6 +7,7 @@ public static class SwaggerExtensions
     // Swashbuckle 10 uses Microsoft.OpenApi 2.x (namespace Microsoft.OpenApi, scheme references by id).
     public static IServiceCollection AddSwaggerWithJwt(this IServiceCollection services)
     {
+        ArgumentNullException.ThrowIfNull(services);
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(o =>
         {
