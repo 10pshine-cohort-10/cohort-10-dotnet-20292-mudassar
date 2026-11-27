@@ -139,6 +139,7 @@ public static class AuthExtensions
         services.AddSingleton<ITaskHubConnectionTracker, TaskHubConnectionTracker>();
         services.AddSingleton<ITaskRealtimeNotifier, SignalRTaskRealtimeNotifier>();
         services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<ITaskTransferService, TaskTransferService>();
         services.AddScoped<IDashboardService, DashboardService>();
 
         services.AddRateLimiter(o =>

@@ -9,6 +9,7 @@ import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pa
 import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import PageHeader from "../components/PageHeader";
 import LiveBadge from "../components/LiveBadge";
+import TaskTransferControls, { ImportResultAlert } from "../components/TaskTransferControls";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -42,6 +43,15 @@ function parseTaskFilters(searchParams) {
 
 function buildTaskQueryParams({ page, statusFilter, priorityFilter, categoryFilter, searchQuery }) {
   const params = { page, pageSize: PAGE_SIZE };
+  if (statusFilter) params.status = statusFilter;
+  if (priorityFilter) params.priority = priorityFilter;
+  if (categoryFilter) params.categoryId = Number(categoryFilter);
+  if (searchQuery.trim()) params.search = searchQuery.trim();
+  return params;
+}
+
+function buildExportFilterParams({ statusFilter, priorityFilter, categoryFilter, searchQuery }) {
+  const params = {};
   if (statusFilter) params.status = statusFilter;
   if (priorityFilter) params.priority = priorityFilter;
   if (categoryFilter) params.categoryId = Number(categoryFilter);
@@ -192,6 +202,7 @@ export default function TaskList() {
   const [error, setError] = useState("");
   const [categoryError, setCategoryError] = useState("");
   const [retryingCategories, setRetryingCategories] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   const isMountedRef = useRef(true);
   const controllerRef = useRef(null);
@@ -461,6 +472,22 @@ export default function TaskList() {
   const totalPages = Math.max(1, data.totalPages || Math.ceil((data.totalCount || 0) / PAGE_SIZE));
   const canDelete = (task) => isAdmin || task.createdById === user?.id;
 
+  const handleTasksImported = useCallback((result) => {
+    setImportResult(result);
+    if (result?.importedCount > 0) {
+      invalidateOwnerCaches(currentOwnerRef.current);
+      requestGenRef.current += 1;
+      void loadRef.current({ silent: true });
+    }
+  }, []);
+
+  const exportFilterParams = buildExportFilterParams({
+    statusFilter,
+    priorityFilter,
+    categoryFilter,
+    searchQuery,
+  });
+
   return (
     <>
       <PageHeader
@@ -469,12 +496,18 @@ export default function TaskList() {
         actions={
           <div className="row-actions">
             <LiveBadge state={realtimeState} />
+            <TaskTransferControls
+              filterParams={exportFilterParams}
+              onImported={handleTasksImported}
+              onError={setError}
+            />
             <Link to="/tasks/new" className="btn-primary">+ New Task</Link>
           </div>
         }
       />
 
       <ErrorAlert message={error} onClose={() => setError("")} />
+      <ImportResultAlert result={importResult} onClose={() => setImportResult(null)} />
       <CategoryErrorAlert
         categoryError={categoryError}
         retryingCategories={retryingCategories}
