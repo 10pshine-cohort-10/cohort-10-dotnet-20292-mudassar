@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { createTask, getTaskById, updateTask } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
 import { getUserLookup } from "../api/usersApi";
 import { getErrorMessage } from "../utils/errorMessage";
+import { deletePageCacheByPrefix } from "../utils/pageCache";
 import ErrorAlert from "../components/ErrorAlert";
 import Field from "../components/Field";
 
@@ -47,6 +49,7 @@ export default function TaskForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -172,6 +175,7 @@ export default function TaskForm() {
     if (!validate()) return;
 
     const saveGen = ++saveGenRef.current;
+    const originatingUserIdKey = user?.id ?? "anon";
     setSaving(true);
     setError("");
     try {
@@ -190,11 +194,15 @@ export default function TaskForm() {
           status,
           rowVersion: rowVersion || null
         });
+        deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
+        deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
         if (saveGenRef.current === saveGen) {
           navigate(`/tasks/${updated.id}`);
         }
       } else {
         const created = await createTask(payload);
+        deletePageCacheByPrefix(`tasks:${originatingUserIdKey}:`);
+        deletePageCacheByPrefix(`dashboard:${originatingUserIdKey}`);
         if (saveGenRef.current === saveGen) {
           navigate(`/tasks/${created.id}`);
         }

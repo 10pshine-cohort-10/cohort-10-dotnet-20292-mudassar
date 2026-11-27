@@ -133,7 +133,7 @@ export function getErrorMessage(error) {
 
 ```jsx
 // src/auth/AuthContext.jsx
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import client from "../api/axiosClient";
 import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
 
@@ -143,33 +143,83 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children, storage = defaultSessionStorage }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [restoreError, setRestoreError] = useState("");
+  const sessionVersionRef = useRef(0);
+
+  const restoreSession = async () => {
+    setActiveSessionStorage(storage);
+    const version = sessionVersionRef.current;
+    setLoading(true);
+    setRestoreError("");
+    let token = null;
+    try {
+      token = await storage.getToken();
+      if (sessionVersionRef.current !== version) return;
+      if (!token) {
+        setUser(null);
+        return;
+      }
+      const { data } = await client.get("/auth/me");
+      if (sessionVersionRef.current === version) setUser(data);
+    } catch (err) {
+      if (sessionVersionRef.current !== version) return;
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        let removed = false;
+        if (token && typeof storage.removeTokenIfMatch === "function") {
+          removed = await storage.removeTokenIfMatch(token).catch(() => false);
+        }
+        if (sessionVersionRef.current !== version) return;
+        if (token && !removed) {
+          const currentToken = await storage.getToken().catch(() => null);
+          if (sessionVersionRef.current !== version) return;
+          if (currentToken && currentToken !== token) {
+            sessionVersionRef.current += 1;
+            setUser(null);
+            await restoreSession();
+            return;
+          }
+        }
+        setUser(null);
+        setRestoreError("");
+      } else {
+        // Retain token on network/5xx errors (e.g. 503) so the user can retry.
+        setRestoreError(err?.message || "Failed to restore session.");
+      }
+    } finally {
+      if (sessionVersionRef.current === version) setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setActiveSessionStorage(storage);
-    let active = true;
-    (async () => {
-      try {
-        const token = await storage.getToken();
-        if (!token) return;
-        const { data } = await client.get("/auth/me");
-        if (active) setUser(data);
-      } catch {
-        await storage.removeToken().catch(() => {});
-        if (active) setUser(null);
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
+    sessionVersionRef.current += 1;
+    void restoreSession();
     return () => {
-      active = false;
+      sessionVersionRef.current += 1;
     };
   }, [storage]);
 
   const login = async (email, password) => {
     setActiveSessionStorage(storage);
     const { data } = await client.post("/auth/login", { email, password });
-    await storage.setToken(data.token);
-    setUser(data.user);
+    const loginVersion = ++sessionVersionRef.current;
+    let superseded = false;
+    try {
+      const applied = await storage.setToken(data.token);
+      if (applied === false) {
+        superseded = true;
+      } else if (sessionVersionRef.current === loginVersion) {
+        setUser(data.user);
+      }
+    } finally {
+      if (superseded && sessionVersionRef.current === loginVersion) {
+        setUser(null);
+        await restoreSession();
+      }
+      if (sessionVersionRef.current === loginVersion) {
+        setLoading(false);
+      }
+    }
   };
 
   const logout = async () => {
@@ -177,14 +227,24 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     try {
       await client.post("/auth/logout");
     } finally {
+      sessionVersionRef.current += 1;
       await storage.removeToken();
       setUser(null);
+      setLoading(false);
     }
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, logout, isAdmin: !!user?.roles?.includes("Admin") }}
+      value={{
+        user,
+        loading,
+        restoreError,
+        retryRestore: restoreSession,
+        login,
+        logout,
+        isAdmin: !!user?.roles?.includes("Admin"),
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -198,8 +258,29 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 export default function ProtectedRoute({ adminOnly = false }) {
-  const { user, loading, isAdmin } = useAuth();
-  if (loading) return <p>Loading...</p>;
+  const { user, loading, restoreError, retryRestore, logout, isAdmin } = useAuth();
+  if (loading) {
+    return (
+      <p role="status" aria-live="polite">
+        Loading...
+      </p>
+    );
+  }
+  if (!user && restoreError) {
+    return (
+      <div className="alert error" role="alert">
+        <p>{restoreError}</p>
+        <div className="row-actions">
+          <button type="button" onClick={() => void retryRestore()}>
+            Retry
+          </button>
+          <button type="button" onClick={() => void logout()}>
+            Sign in again
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && !isAdmin) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
