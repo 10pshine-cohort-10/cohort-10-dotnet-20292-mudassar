@@ -1,6 +1,6 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
-import ProtectedRoute from "./auth/ProtectedRoute";
+import ProtectedRoute, { SessionRecoveryView } from "./auth/ProtectedRoute";
 import AppLayout from "./components/AppLayout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -21,21 +21,11 @@ function PublicOnly() {
   }
   if (!user && restoreError) {
     return (
-      <div className="app">
-        <div className="page">
-          <div className="alert error" role="alert">
-            <p>{restoreError}</p>
-            <div className="row-actions">
-              <button type="button" className="retry" onClick={() => void retryRestore()}>
-                Retry
-              </button>
-              <button type="button" className="retry" onClick={() => void logout().catch(() => {})}>
-                Sign in again
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <SessionRecoveryView
+        message={restoreError}
+        onRetry={retryRestore}
+        onSignInAgain={logout}
+      />
     );
   }
   return user ? <Navigate to="/dashboard" replace /> : <Outlet />;

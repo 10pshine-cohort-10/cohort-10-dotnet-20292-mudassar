@@ -4,6 +4,8 @@ import { getErrorMessage } from "../utils/errorMessage";
 import { clearPageCache } from "../utils/pageCache";
 import {
   defaultSessionStorage,
+  getTokenAccountIdentity,
+  setActiveAccountIdentity,
   setActiveSessionStorage,
   subscribeTokenChanges,
 } from "./tokenStorage";
@@ -12,11 +14,15 @@ const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
 const INCOMPLETE_LOGOUT_ERROR = "Could not complete sign-out on this device. Please retry sign-out.";
+const INTERRUPTED_LOGIN_ERROR = "Sign-in was interrupted by sign-out. Please sign in again.";
 
 const isAuthFailure = (err) => {
   const status = err?.response?.status;
   return status === 401 || status === 403;
 };
+
+const resolveAccountIdentity = (userObj, token) =>
+  userObj?.id ?? getTokenAccountIdentity(token);
 
 async function tryClearSuppressedToken(storage) {
   try {
@@ -115,6 +121,7 @@ export function AuthProvider({ children, storage: storageProp }) {
         const cleared = await tryClearSuppressedToken(storage);
         if (cleared) suppressStoredTokenRef.current = false;
         if (sessionVersionRef.current !== version) return;
+        setActiveAccountIdentity(null);
         setUserState(null);
         setRestoreError(cleared ? "" : INCOMPLETE_LOGOUT_ERROR);
         return;
@@ -125,13 +132,16 @@ export function AuthProvider({ children, storage: storageProp }) {
       if (sessionVersionRef.current !== version) return;
 
       if (!token) {
+        setActiveAccountIdentity(null);
         setUserState(null);
         setRestoreError("");
         return;
       }
 
+      setActiveAccountIdentity(getTokenAccountIdentity(token));
       const me = await getMe();
       if (sessionVersionRef.current !== version) return;
+      setActiveAccountIdentity(resolveAccountIdentity(me, token));
       setUserState(me);
     } catch (err) {
       if (sessionVersionRef.current !== version) return;
@@ -145,6 +155,7 @@ export function AuthProvider({ children, storage: storageProp }) {
           await restoreSession();
           return;
         }
+        setActiveAccountIdentity(null);
         setUserState(null);
         setRestoreError("");
       } else {
@@ -167,6 +178,9 @@ export function AuthProvider({ children, storage: storageProp }) {
       logoutInFlightRef.current = false;
       if (nextValue) {
         suppressStoredTokenRef.current = false;
+        setActiveAccountIdentity(getTokenAccountIdentity(nextValue));
+      } else {
+        setActiveAccountIdentity(null);
       }
       clearPageCache();
       setUserState(null);
@@ -208,13 +222,48 @@ export function AuthProvider({ children, storage: storageProp }) {
           setUserState(null);
           await restoreSession();
         }
-        return;
+        const activeTokenAfterSupersede = await readCapturedToken(storage);
+        if (suppressStoredTokenRef.current || !activeTokenAfterSupersede) {
+          return {
+            ok: false,
+            interrupted: true,
+            status: "interrupted",
+            message: INTERRUPTED_LOGIN_ERROR,
+          };
+        }
+        return {
+          ok: true,
+          interrupted: false,
+          status: "superseded",
+        };
       }
-      if (sessionVersionRef.current === loginVersion) {
-        suppressStoredTokenRef.current = false;
-        setRestoreError("");
-        setUserState(data.user);
+      if (sessionVersionRef.current !== loginVersion) {
+        superseded = true;
+        const activeToken = await readCapturedToken(storage);
+        if (suppressStoredTokenRef.current || !activeToken) {
+          return {
+            ok: false,
+            interrupted: true,
+            status: "interrupted",
+            message: INTERRUPTED_LOGIN_ERROR,
+          };
+        }
+        return {
+          ok: true,
+          interrupted: false,
+          status: "superseded",
+        };
       }
+      suppressStoredTokenRef.current = false;
+      setActiveAccountIdentity(data.user?.id ?? getTokenAccountIdentity(data.token));
+      setRestoreError("");
+      setUserState(data.user);
+      return {
+        ok: true,
+        interrupted: false,
+        status: "authenticated",
+        user: data.user,
+      };
     } finally {
       if (!superseded && sessionVersionRef.current === loginVersion) {
         setLoading(false);
@@ -240,6 +289,7 @@ export function AuthProvider({ children, storage: storageProp }) {
       if (sessionVersionRef.current === startingVersion) {
         const logoutVersion = ++sessionVersionRef.current;
         suppressStoredTokenRef.current = true;
+        setActiveAccountIdentity(null);
         clearPageCache();
         setRestoreError("");
         setLoading(true);

@@ -26,7 +26,8 @@ const schema = z
 export default function Signup() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const success = Boolean(successMessage);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({ resolver: zodResolver(schema) });
 
   useEffect(() => {
@@ -38,8 +39,11 @@ export default function Signup() {
   const onSubmit = async ({ fullName, email, password }) => {
     setError("");
     try {
-      await registerRequest({ fullName, email, password });
-      setSuccess(true);
+      const res = await registerRequest({ fullName, email, password });
+      setSuccessMessage(
+        res?.message ||
+          "If the provided details are valid, registration has been accepted. You can now sign in."
+      );
     } catch (e) {
       setError(getErrorMessage(e));
     }
@@ -47,7 +51,7 @@ export default function Signup() {
 
   return (
     <AuthLayout title="Create your account" subtitle="Start organizing your work in a minute.">
-      {success && <ErrorAlert type="success" message="Account created. Taking you to log in." />}
+      {success && <ErrorAlert type="success" message={successMessage} />}
       <ErrorAlert message={error} onClose={() => setError("")} />
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Field id="fullName" label="Full name" autoComplete="name" placeholder="Jane Doe" error={errors.fullName?.message} {...register("fullName")} />

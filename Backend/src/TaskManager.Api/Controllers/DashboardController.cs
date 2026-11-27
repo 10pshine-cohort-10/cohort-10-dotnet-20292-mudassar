@@ -10,8 +10,15 @@ namespace TaskManager.Api.Controllers;
 [Route("api/dashboard")]
 [Produces("application/json")]
 [Authorize]
-public class DashboardController(IDashboardService dashboard) : ControllerBase
+public class DashboardController : ControllerBase
 {
+    private readonly IDashboardService dashboard;
+
+    public DashboardController(IDashboardService dashboard)
+    {
+        ArgumentNullException.ThrowIfNull(dashboard);
+        this.dashboard = dashboard;
+    }
     /// <summary>
     /// Returns Completed, InProgress, Pending, and Total task counts:
     /// user-specific counts for standard users, or all task counts for Admins.

@@ -10,8 +10,15 @@ namespace TaskManager.Api.Controllers;
 [Route("api/categories")]
 [Produces("application/json")]
 [Authorize]
-public class CategoriesController(ICategoryService categories) : ControllerBase
+public class CategoriesController : ControllerBase
 {
+    private readonly ICategoryService categories;
+
+    public CategoriesController(ICategoryService categories)
+    {
+        ArgumentNullException.ThrowIfNull(categories);
+        this.categories = categories;
+    }
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<CategoryDto>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]

@@ -10,8 +10,18 @@ namespace TaskManager.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 [Produces("application/json")]
-public class AuthController(IAuthService auth, ILogger<AuthController> log) : ControllerBase
+public class AuthController : ControllerBase
 {
+    private readonly IAuthService auth;
+    private readonly ILogger<AuthController> log;
+
+    public AuthController(IAuthService auth, ILogger<AuthController> log)
+    {
+        ArgumentNullException.ThrowIfNull(auth);
+        ArgumentNullException.ThrowIfNull(log);
+        this.auth = auth;
+        this.log = log;
+    }
     [HttpPost("register"), AllowAnonymous, EnableRateLimiting(AuthExtensions.AuthRateLimitPolicy)]
     [ProducesResponseType<RegisterResponse>(StatusCodes.Status202Accepted)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
