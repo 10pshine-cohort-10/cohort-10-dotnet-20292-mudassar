@@ -107,6 +107,7 @@ export function AuthProvider({ children, storage: storageProp }) {
 
   const sessionVersionRef = useRef(0);
   const restoreRequestIdRef = useRef(0);
+  const blockingRestorePendingRef = useRef(false);
   const logoutPromiseRef = useRef(null);
   const suppressStoredTokenRef = useRef(false);
   const userRef = useRef(userState);
@@ -170,6 +171,7 @@ export function AuthProvider({ children, storage: storageProp }) {
     const version = sessionVersionRef.current;
     const requestId = ++restoreRequestIdRef.current;
     if (!silent) {
+      blockingRestorePendingRef.current = true;
       setLoading(true);
     }
     setRestoreError("");
@@ -207,7 +209,8 @@ export function AuthProvider({ children, storage: storageProp }) {
         retryRestoreFn: restoreSession,
       });
     } finally {
-      if (!silent && sessionVersionRef.current === version) {
+      if (isCurrentRestore(version, requestId) && (!silent || blockingRestorePendingRef.current)) {
+        blockingRestorePendingRef.current = false;
         setLoading(false);
       }
     }
@@ -295,6 +298,7 @@ export function AuthProvider({ children, storage: storageProp }) {
       };
     } finally {
       if (!superseded && sessionVersionRef.current === loginVersion) {
+        blockingRestorePendingRef.current = false;
         setLoading(false);
       }
     }
@@ -302,6 +306,7 @@ export function AuthProvider({ children, storage: storageProp }) {
 
   const clearLocalSessionOnLogout = useCallback(async (capturedToken) => {
     const logoutVersion = ++sessionVersionRef.current;
+    blockingRestorePendingRef.current = false;
     suppressStoredTokenRef.current = true;
     setActiveAccountIdentity(null);
     clearPageCache();
@@ -357,7 +362,7 @@ export function AuthProvider({ children, storage: storageProp }) {
           logoutPromiseRef.current = null;
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return pendingLogout;
   }, [clearLocalSessionOnLogout, storage]);
