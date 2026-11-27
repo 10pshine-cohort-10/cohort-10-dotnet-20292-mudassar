@@ -58,6 +58,12 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ...(proxyAgent ? { agent: proxyAgent } : {}),
         },
+        "/hubs": {
+          target: apiTarget,
+          changeOrigin: true,
+          ws: true,
+          ...(proxyAgent ? { agent: proxyAgent } : {}),
+        },
       },
     },
   };

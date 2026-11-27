@@ -3,10 +3,21 @@ const DB_NAME = "taskflow_auth_db";
 const STORE_NAME = "session";
 const CHANNEL_NAME = "taskflow_auth_channel";
 
-const TAB_ID =
-  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+function createTabId() {
+  if (typeof crypto !== "undefined") {
+    if (typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    }
+  }
+  return `${Date.now()}-${globalThis.performance?.now?.() ?? 0}`;
+}
+
+const TAB_ID = createTabId();
 
 const memoryFallback = new Map();
 const listeners = new Set();
@@ -28,7 +39,7 @@ let activeSessionRevision = 0;
 let hasResolvedInitialSession = false;
 
 function decodeBase64Url(segment) {
-  const normalized = String(segment).replace(/-/g, "+").replace(/_/g, "/");
+  const normalized = String(segment).replaceAll("-", "+").replaceAll("_", "/");
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   if (typeof atob === "function") {
     return atob(padded);
@@ -202,7 +213,7 @@ const channel =
 if (channel) {
   channel.onmessage = (event) => {
     const payload = event?.data;
-    if (!payload || payload.key !== TOKEN_KEY) return;
+    if (payload?.key !== TOKEN_KEY) return;
 
     const normalizedValue = payload.newValue ?? null;
     const hasMeta =
@@ -241,9 +252,29 @@ function notifyChange(meta) {
   }
 }
 
+const recoveryListeners = new Set();
+
 export function subscribeTokenChanges(listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+export function subscribeStorageRecovery(listener) {
+  recoveryListeners.add(listener);
+  return () => recoveryListeners.delete(listener);
+}
+
+function notifyStorageRecovery() {
+  for (const fn of recoveryListeners) {
+    fn();
+  }
+}
+
+function createStorageTimeoutError() {
+  const err = new Error("Timed out opening session storage. Please retry.");
+  err.code = "STORAGE_OPEN_TIMEOUT";
+  err.retryable = true;
+  return err;
 }
 
 const IDB_OPEN_TIMEOUT_MS = 3000;
@@ -251,13 +282,31 @@ let indexedDbUnavailable = false;
 let everOpenedIndexedDb = false;
 let transientOpenTimeout = false;
 
+function handleLateOpenSuccess(db) {
+  const recoveredFromTimeout = transientOpenTimeout;
+  everOpenedIndexedDb = true;
+  indexedDbUnavailable = false;
+  transientOpenTimeout = false;
+  db?.close();
+  if (recoveredFromTimeout) {
+    notifyStorageRecovery();
+  }
+}
+
+function handleOpenFailure(err, { forCleanup, allowMemoryFallback }, resolve, reject) {
+  const shouldReject =
+    forCleanup && (!allowMemoryFallback || everOpenedIndexedDb || transientOpenTimeout);
+  if (shouldReject) {
+    reject(err instanceof Error ? err : new Error("Failed to open IndexedDB."));
+    return;
+  }
+  indexedDbUnavailable = true;
+  resolve(null);
+}
+
 function openAuthDb({ forCleanup = false, allowMemoryFallback = true } = {}) {
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      resolve(null);
-      return;
-    }
-    if (!forCleanup && (indexedDbUnavailable || transientOpenTimeout)) {
+    if (typeof indexedDB === "undefined" || (!forCleanup && indexedDbUnavailable)) {
       resolve(null);
       return;
     }
@@ -266,11 +315,7 @@ function openAuthDb({ forCleanup = false, allowMemoryFallback = true } = {}) {
       if (settled) return;
       settled = true;
       transientOpenTimeout = true;
-      if (forCleanup) {
-        reject(new Error("Timed out opening IndexedDB."));
-        return;
-      }
-      resolve(null);
+      reject(createStorageTimeoutError());
     }, IDB_OPEN_TIMEOUT_MS);
 
     try {
@@ -284,10 +329,7 @@ function openAuthDb({ forCleanup = false, allowMemoryFallback = true } = {}) {
       req.onsuccess = () => {
         clearTimeout(timer);
         if (settled) {
-          everOpenedIndexedDb = true;
-          indexedDbUnavailable = false;
-          transientOpenTimeout = false;
-          req.result?.close();
+          handleLateOpenSuccess(req.result);
           return;
         }
         settled = true;
@@ -300,24 +342,13 @@ function openAuthDb({ forCleanup = false, allowMemoryFallback = true } = {}) {
         clearTimeout(timer);
         if (settled) return;
         settled = true;
-        if (forCleanup && (!allowMemoryFallback || everOpenedIndexedDb || transientOpenTimeout)) {
-          reject(req.error ?? new Error("Failed to open IndexedDB."));
-          return;
-        }
-        indexedDbUnavailable = true;
-        resolve(null);
+        handleOpenFailure(req.error, { forCleanup, allowMemoryFallback }, resolve, reject);
       };
     } catch (err) {
       clearTimeout(timer);
-      if (!settled) {
-        settled = true;
-        if (forCleanup && (!allowMemoryFallback || everOpenedIndexedDb || transientOpenTimeout)) {
-          reject(err instanceof Error ? err : new Error("Failed to open IndexedDB."));
-          return;
-        }
-        indexedDbUnavailable = true;
-        resolve(null);
-      }
+      if (settled) return;
+      settled = true;
+      handleOpenFailure(err, { forCleanup, allowMemoryFallback }, resolve, reject);
     }
   });
 }
@@ -370,6 +401,76 @@ function persistMetaIfNewerInDb(db, incomingMeta, defaultErrorMessage) {
       db.close();
       reject(err);
     };
+  });
+}
+
+function removeTokenFromMemoryIfMatch(expectedToken) {
+  const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
+  if (loggedOutOverride || current.token !== expectedToken) {
+    return false;
+  }
+  const nextMeta = createNextWriteMeta(null, current.meta);
+  const applied = applyWinningMetaInMemory(nextMeta, { memoryOnly: true });
+  if (applied) {
+    notifyChange(nextMeta);
+  }
+  return applied;
+}
+
+function getEffectiveRecordForMatch(persistedRaw) {
+  const current = extractStoredRecord(persistedRaw);
+  const hasInMemoryState = memoryFallback.has(TOKEN_KEY) || latestWriteMeta.revision > 0;
+  const inMemoryRecord = hasInMemoryState
+    ? extractStoredRecord(memoryFallback.get(TOKEN_KEY))
+    : null;
+  const inMemoryWins = Boolean(
+    inMemoryRecord?.meta &&
+      (!current.meta || compareWriteMeta(inMemoryRecord.meta, current.meta) > 0)
+  );
+  return {
+    effectiveRecord: inMemoryWins ? inMemoryRecord : current,
+    hasInMemoryState,
+    inMemoryRecord,
+  };
+}
+
+function removeTokenFromDbIfMatch(db, expectedToken) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const getReq = store.get(TOKEN_KEY);
+    let matched = false;
+    let nextMeta = null;
+    let putReq = null;
+
+    getReq.onsuccess = () => {
+      const { effectiveRecord, hasInMemoryState, inMemoryRecord } = getEffectiveRecordForMatch(
+        getReq.result
+      );
+      const inMemoryMatches = !hasInMemoryState || inMemoryRecord.token === expectedToken;
+      if (!loggedOutOverride && effectiveRecord.token === expectedToken && inMemoryMatches) {
+        matched = true;
+        nextMeta = createNextWriteMeta(null, effectiveRecord.meta);
+        putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
+      }
+    };
+
+    const fail = () => {
+      const err =
+        tx.error ??
+        putReq?.error ??
+        getReq.error ??
+        new Error("Failed to conditionally remove token from IndexedDB.");
+      db.close();
+      reject(err);
+    };
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve({ removed: matched, winningMeta: nextMeta });
+    };
+    tx.onabort = fail;
+    tx.onerror = fail;
   });
 }
 
@@ -478,65 +579,9 @@ export const defaultSessionStorage = {
       if (!isConfirmedMemoryOnly && typeof indexedDB !== "undefined") {
         throw new Error("Failed to open IndexedDB for conditional token removal.");
       }
-      const current = extractStoredRecord(memoryFallback.get(TOKEN_KEY));
-      if (!loggedOutOverride && current.token === expectedToken) {
-        const nextMeta = createNextWriteMeta(null, current.meta);
-        const applied = applyWinningMetaInMemory(nextMeta, { memoryOnly: true });
-        if (applied) {
-          notifyChange(nextMeta);
-        }
-        return applied;
-      }
-      return false;
+      return removeTokenFromMemoryIfMatch(expectedToken);
     }
-    const { removed, winningMeta } = await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      const store = tx.objectStore(STORE_NAME);
-      const getReq = store.get(TOKEN_KEY);
-      let matched = false;
-      let nextMeta = null;
-      let putReq = null;
-      getReq.onsuccess = () => {
-        const current = extractStoredRecord(getReq.result);
-        const hasInMemoryState = memoryFallback.has(TOKEN_KEY) || latestWriteMeta.revision > 0;
-        const inMemoryRecord = hasInMemoryState
-          ? extractStoredRecord(memoryFallback.get(TOKEN_KEY))
-          : null;
-        const inMemoryWins = Boolean(
-          inMemoryRecord?.meta &&
-            (!current.meta || compareWriteMeta(inMemoryRecord.meta, current.meta) > 0)
-        );
-        const effectiveRecord = inMemoryWins ? inMemoryRecord : current;
-        const inMemoryMatches = !hasInMemoryState || inMemoryRecord.token === expectedToken;
-        if (!loggedOutOverride && effectiveRecord.token === expectedToken && inMemoryMatches) {
-          matched = true;
-          nextMeta = createNextWriteMeta(null, effectiveRecord.meta);
-          putReq = store.put(toStoredRecord(nextMeta), TOKEN_KEY);
-        }
-      };
-      tx.oncomplete = () => {
-        db.close();
-        resolve({ removed: matched, winningMeta: nextMeta });
-      };
-      tx.onabort = () => {
-        const err =
-          tx.error ??
-          putReq?.error ??
-          getReq.error ??
-          new Error("Failed to conditionally remove token from IndexedDB.");
-        db.close();
-        reject(err);
-      };
-      tx.onerror = () => {
-        const err =
-          tx.error ??
-          putReq?.error ??
-          getReq.error ??
-          new Error("Failed to conditionally remove token from IndexedDB.");
-        db.close();
-        reject(err);
-      };
-    });
+    const { removed, winningMeta } = await removeTokenFromDbIfMatch(db, expectedToken);
     if (removed && winningMeta) {
       const applied = applyWinningMetaInMemory(winningMeta);
       if (applied) {

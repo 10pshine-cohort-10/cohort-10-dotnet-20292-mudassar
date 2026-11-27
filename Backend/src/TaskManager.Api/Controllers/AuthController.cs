@@ -40,14 +40,15 @@ public class AuthController : ControllerBase
     [HttpGet("me"), Authorize]
     [ProducesResponseType<UserInfoDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<UserInfoDto>> Me() => Ok(await auth.GetCurrentAsync(User.GetUserId()));
+    public async Task<ActionResult<UserInfoDto>> Me()
+        => Ok(await auth.GetCurrentAsync(User.GetUserId(), HttpContext.RequestAborted));
 
     [HttpPut("me"), Authorize]
     [ProducesResponseType<UserInfoDto>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<UserInfoDto>> UpdateMe(UpdateProfileDto dto)
-        => Ok(await auth.UpdateProfileAsync(User.GetUserId(), dto));
+        => Ok(await auth.UpdateProfileAsync(User.GetUserId(), dto, HttpContext.RequestAborted));
 
     [HttpPost("logout"), Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

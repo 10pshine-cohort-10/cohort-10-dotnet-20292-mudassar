@@ -9,6 +9,7 @@ public static class ClaimsPrincipalExtensions
     /// <summary>The user id always comes from the token, never from the request body.</summary>
     public static Guid GetUserId(this ClaimsPrincipal user)
     {
+        ArgumentNullException.ThrowIfNull(user);
         var value = user.FindFirstValue(ClaimTypes.NameIdentifier);
         return Guid.TryParse(value, out var id) ? id : throw new UnauthorizedException("Invalid token.");
     }

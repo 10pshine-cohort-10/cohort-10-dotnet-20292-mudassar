@@ -5,6 +5,7 @@ import { deleteTask, getTaskById, updateTaskStatus } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
 import { deletePageCacheByPrefix } from "../utils/pageCache";
+import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -23,6 +24,7 @@ export default function TaskDetail() {
   const [error, setError] = useState("");
 
   const routeGenRef = useRef(0);
+  const fetchGenRef = useRef(0);
   const statusGenRef = useRef(0);
   const activeIdRef = useRef(id);
   activeIdRef.current = id;
@@ -30,45 +32,72 @@ export default function TaskDetail() {
   const isCurrentRouteGen = (routeGen, targetId) =>
     routeGenRef.current === routeGen && activeIdRef.current === targetId;
 
+  const isCurrentFetchGen = (routeGen, fetchGen, targetId) =>
+    isCurrentRouteGen(routeGen, targetId) && fetchGenRef.current === fetchGen;
+
   const isCurrentStatusGen = (routeGen, statusGen, targetId) =>
     isCurrentRouteGen(routeGen, targetId) && statusGenRef.current === statusGen;
 
-  const load = useCallback(async () => {
-    const routeGen = ++routeGenRef.current;
-    statusGenRef.current += 1;
+  const load = useCallback(async ({ silent = false } = {}) => {
+    const routeGen = routeGenRef.current;
+    const fetchGen = ++fetchGenRef.current;
     const targetId = id;
-    setTask(null);
-    setUpdatingStatus(false);
-    setDeleting(false);
-    setLoading(true);
-    setError("");
+    if (!silent) {
+      statusGenRef.current += 1;
+      setTask(null);
+      setUpdatingStatus(false);
+      setDeleting(false);
+      setLoading(true);
+      setError("");
+    }
     try {
       const res = await getTaskById(targetId);
-      if (!isCurrentRouteGen(routeGen, targetId)) return;
+      if (!isCurrentFetchGen(routeGen, fetchGen, targetId)) return;
       setTask(res);
     } catch (e) {
-      if (!isCurrentRouteGen(routeGen, targetId)) return;
-      setError(getErrorMessage(e));
+      if (!isCurrentFetchGen(routeGen, fetchGen, targetId)) return;
+      if (!silent) setError(getErrorMessage(e));
     } finally {
-      if (isCurrentRouteGen(routeGen, targetId)) {
+      if (isCurrentFetchGen(routeGen, fetchGen, targetId)) {
         setLoading(false);
       }
     }
   }, [id]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
+    routeGenRef.current += 1;
     void load();
     return () => {
       routeGenRef.current += 1;
+      fetchGenRef.current += 1;
       statusGenRef.current += 1;
     };
   }, [load]);
 
-  const invalidateTaskCaches = () => {
+  const invalidateTaskCaches = useCallback(() => {
     const userIdKey = user?.id ?? "anon";
     deletePageCacheByPrefix(`tasks:${userIdKey}:`);
     deletePageCacheByPrefix(`dashboard:${userIdKey}`);
-  };
+  }, [user?.id]);
+
+  const handleRealtimeStatusUpdate = useCallback(
+    (event) => {
+      if (!event?.taskId || event.taskId !== Number(activeIdRef.current)) return;
+      invalidateTaskCaches();
+      void loadRef.current({ silent: true });
+    },
+    [invalidateTaskCaches]
+  );
+
+  const handleRealtimeReconnected = useCallback(() => {
+    invalidateTaskCaches();
+    void loadRef.current({ silent: true });
+  }, [invalidateTaskCaches]);
+
+  useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate, handleRealtimeReconnected);
 
   const handleStatusChange = async (newStatus) => {
     if (!task || updatingStatus || deleting) return;

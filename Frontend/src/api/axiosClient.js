@@ -23,36 +23,40 @@ function createSessionChangedError() {
   const err = new Error("Request aborted because the active account session changed.");
   err.code = "ERR_CANCELED";
   err.name = "CanceledError";
+  err.sessionChanged = true;
   return err;
 }
+
+const normalizeIdentity = (identity) =>
+  identity === null || identity === undefined ? null : String(identity);
 
 client.interceptors.request.use(async (config) => {
   if (isPublicAuthRequest(config)) {
     config._requestToken = null;
     return config;
   }
+  const hasExplicitIdentity = config._expectedAccountIdentity !== undefined;
   const hadSnapshotAtStart = hasActiveSessionSnapshot();
-  const expectedIdentity =
-    config._expectedAccountIdentity !== undefined
-      ? config._expectedAccountIdentity
-      : getActiveAccountIdentity();
+  const expectedIdentity = normalizeIdentity(
+    hasExplicitIdentity ? config._expectedAccountIdentity : getActiveAccountIdentity()
+  );
   const startingRevision = getActiveSessionRevision();
 
   const token = await getActiveSessionStorage().getToken();
-  const tokenIdentity = getTokenAccountIdentity(token);
+  const tokenIdentity = normalizeIdentity(getTokenAccountIdentity(token));
 
   const sessionChangedSinceStart =
-    hadSnapshotAtStart || config._expectedAccountIdentity !== undefined
+    hasExplicitIdentity || hadSnapshotAtStart
       ? tokenIdentity !== expectedIdentity
       : getActiveSessionRevision() !== startingRevision &&
-        getActiveAccountIdentity() !== tokenIdentity;
+        normalizeIdentity(getActiveAccountIdentity()) !== tokenIdentity;
 
   if (sessionChangedSinceStart) {
     config._requestToken = null;
     if (config.headers) {
       delete config.headers.Authorization;
     }
-    return Promise.reject(createSessionChangedError());
+    throw createSessionChangedError();
   }
 
   config._requestToken = token;
@@ -83,7 +87,7 @@ client.interceptors.response.use(
         window.location.href = "/login";
       }
     }
-    return Promise.reject(error);
+    throw error;
   }
 );
 

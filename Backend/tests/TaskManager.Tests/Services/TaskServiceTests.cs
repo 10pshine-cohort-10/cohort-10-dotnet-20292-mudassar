@@ -289,5 +289,135 @@ public sealed class TaskServiceTests : IAsyncLifetime, IDisposable
         Assert.Throws<ArgumentNullException>(() => new TaskService(null!, NullLogger<TaskService>.Instance));
         Assert.Throws<ArgumentNullException>(() => new TaskService(_db, null!));
     }
+
+    [Fact]
+    public async Task UpdateStatus_WhenStatusChanges_NotifiesRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(
+            new CreateTaskDto("Realtime Status Task", AssignedToId: _assignee.Id),
+            _owner.Id);
+
+        var updated = await sut.UpdateStatusAsync(created.Id, TaskItemStatus.InProgress, _assignee.Id, isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(
+                It.Is<TaskStatusUpdatedEvent>(e =>
+                    e.TaskId == created.Id &&
+                    e.OldStatus == TaskItemStatus.Pending &&
+                    e.NewStatus == TaskItemStatus.InProgress &&
+                    e.UpdatedById == _assignee.Id &&
+                    e.CreatedById == _owner.Id &&
+                    e.AssignedToId == _assignee.Id &&
+                    e.RowVersion == updated.RowVersion),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WhenStatusUnchanged_DoesNotNotifyRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(new CreateTaskDto("Noop Status Task"), _owner.Id);
+
+        await sut.UpdateStatusAsync(created.Id, TaskItemStatus.Pending, _owner.Id, isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(It.IsAny<TaskStatusUpdatedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Update_WhenStatusChanges_NotifiesRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(
+            new CreateTaskDto("Edit Form Status Task", AssignedToId: _assignee.Id),
+            _owner.Id);
+
+        await sut.UpdateAsync(
+            created.Id,
+            new UpdateTaskDto(
+                Title: "Edit Form Status Task",
+                Status: TaskItemStatus.Completed,
+                Priority: TaskPriority.High,
+                AssignedToId: _assignee.Id,
+                RowVersion: created.RowVersion),
+            _owner.Id,
+            isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(
+                It.Is<TaskStatusUpdatedEvent>(e =>
+                    e.TaskId == created.Id &&
+                    e.OldStatus == TaskItemStatus.Pending &&
+                    e.NewStatus == TaskItemStatus.Completed),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task GetAll_FiltersByDueDateRangeAndOverdueOnly_AndSupportsSorting()
+    {
+        var today = DateTime.UtcNow.Date;
+        _db.Tasks.AddRange(
+            new TaskItem
+            {
+                Title = "Alpha Overdue",
+                Status = TaskItemStatus.Pending,
+                Priority = TaskPriority.Low,
+                DueDate = today.AddDays(-2),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-3),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            },
+            new TaskItem
+            {
+                Title = "Beta Completed Past",
+                Status = TaskItemStatus.Completed,
+                Priority = TaskPriority.High,
+                DueDate = today.AddDays(-1),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-2),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            },
+            new TaskItem
+            {
+                Title = "Gamma Upcoming",
+                Status = TaskItemStatus.InProgress,
+                Priority = TaskPriority.Critical,
+                DueDate = today.AddDays(5),
+                CreatedById = _owner.Id,
+                CreatedAt = DateTime.UtcNow.AddMinutes(-1),
+                RowVersion = Guid.NewGuid().ToByteArray()[..8]
+            });
+        await _db.SaveChangesAsync();
+
+        var sut = CreateSut();
+
+        var overdue = await sut.GetAllAsync(_owner.Id, isAdmin: false, new TaskFilterParams(OverdueOnly: true));
+        Assert.Equal("Alpha Overdue", Assert.Single(overdue.Items).Title);
+
+        var inRange = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(DueFrom: today.AddDays(1), DueTo: today.AddDays(7)));
+        Assert.Equal("Gamma Upcoming", Assert.Single(inRange.Items).Title);
+
+        var sortedByTitleAsc = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(SortBy: "title", SortDir: "asc"));
+        Assert.Equal(["Alpha Overdue", "Beta Completed Past", "Gamma Upcoming"], sortedByTitleAsc.Items.Select(t => t.Title).ToArray());
+
+        var sortedByPriorityDesc = await sut.GetAllAsync(
+            _owner.Id,
+            isAdmin: false,
+            new TaskFilterParams(SortBy: "priority", SortDir: "desc"));
+        Assert.Equal("Gamma Upcoming", sortedByPriorityDesc.Items[0].Title);
+    }
 }
 

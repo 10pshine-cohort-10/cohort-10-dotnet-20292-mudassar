@@ -32,6 +32,7 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
     public (string Token, DateTime ExpiresAt) Create(ApplicationUser user, IList<string> roles)
     {
         ArgumentNullException.ThrowIfNull(user);
+        ArgumentNullException.ThrowIfNull(roles);
         if (string.IsNullOrWhiteSpace(user.Email))
             throw new InvalidOperationException("Cannot issue a JWT token for a user without an email address.");
 

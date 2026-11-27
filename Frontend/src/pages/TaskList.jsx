@@ -3,10 +3,15 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { deleteTask, getTasks, updateTaskStatus } from "../api/tasksApi";
 import { getCategories } from "../api/categoriesApi";
+import { getUserLookup } from "../api/usersApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
 import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pageCache";
+import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import PageHeader from "../components/PageHeader";
+import LiveBadge from "../components/LiveBadge";
+import TaskTransferControls, { ImportResultAlert } from "../components/TaskTransferControls";
+import TaskFiltersBar from "../components/TaskFiltersBar";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -33,18 +38,51 @@ function parseTaskFilters(searchParams) {
     statusFilter: searchParams.get("status") || "",
     priorityFilter: searchParams.get("priority") || "",
     categoryFilter: searchParams.get("categoryId") || "",
+    assigneeFilter: searchParams.get("assignedToId") || "",
+    dueFrom: searchParams.get("dueFrom") || "",
+    dueTo: searchParams.get("dueTo") || "",
+    overdueOnly: searchParams.get("overdueOnly") === "true",
+    sortBy: searchParams.get("sortBy") || "createdAt",
+    sortDir: searchParams.get("sortDir") || "desc",
     searchQuery: searchParams.get("search") || "",
     page: Math.max(1, Number(searchParams.get("page") || 1) || 1),
   };
 }
 
-function buildTaskQueryParams({ page, statusFilter, priorityFilter, categoryFilter, searchQuery }) {
-  const params = { page, pageSize: PAGE_SIZE };
-  if (statusFilter) params.status = statusFilter;
-  if (priorityFilter) params.priority = priorityFilter;
-  if (categoryFilter) params.categoryId = Number(categoryFilter);
-  if (searchQuery.trim()) params.search = searchQuery.trim();
+function buildFilterQueryFields(filters) {
+  const params = {};
+  if (filters.statusFilter) params.status = filters.statusFilter;
+  if (filters.priorityFilter) params.priority = filters.priorityFilter;
+  if (filters.categoryFilter) params.categoryId = Number(filters.categoryFilter);
+  if (filters.assigneeFilter) params.assignedToId = filters.assigneeFilter;
+  if (filters.dueFrom) params.dueFrom = filters.dueFrom;
+  if (filters.dueTo) params.dueTo = filters.dueTo;
+  if (filters.overdueOnly) params.overdueOnly = true;
+  if (filters.sortBy && filters.sortBy !== "createdAt") params.sortBy = filters.sortBy;
+  if (filters.sortDir && filters.sortDir !== "desc") params.sortDir = filters.sortDir;
+  if (filters.searchQuery.trim()) params.search = filters.searchQuery.trim();
   return params;
+}
+
+function buildTaskQueryParams(filters) {
+  return { page: filters.page, pageSize: PAGE_SIZE, ...buildFilterQueryFields(filters) };
+}
+
+function buildTaskCacheKey(userCachePrefix, filters) {
+  return [
+    userCachePrefix,
+    filters.page,
+    filters.statusFilter,
+    filters.priorityFilter,
+    filters.categoryFilter,
+    filters.assigneeFilter,
+    filters.dueFrom,
+    filters.dueTo,
+    filters.overdueOnly ? "1" : "0",
+    filters.sortBy,
+    filters.sortDir,
+    filters.searchQuery,
+  ].join(":");
 }
 
 const isCanceledError = (e) => e?.code === "ERR_CANCELED" || e?.name === "CanceledError";
@@ -52,22 +90,11 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const computeTotalPages = (res) =>
   res.totalPages || Math.ceil((res.totalCount || 0) / PAGE_SIZE);
 
-const settleLookup = (promise) =>
-  promise.then(
-    (value) => ({ ok: true, value }),
-    (reason) => ({ ok: false, reason })
-  );
-
-function resolveCategoriesFromOutcome(catsOutcome, fallbackCategories, setCategories, setCategoryError) {
-  if (catsOutcome.ok) {
-    const nextCats = toArray(catsOutcome.value);
-    setCategories(nextCats);
-    setCategoryError("");
-    return nextCats;
+const clearLoadInFlight = (loadInFlightRef, requestGenRef, gen) => {
+  if (requestGenRef.current === gen) {
+    loadInFlightRef.current = false;
   }
-  setCategoryError(getErrorMessage(catsOutcome.reason));
-  return toArray(fallbackCategories);
-}
+};
 
 const isStaleLoad = ({ isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner }) =>
   !isMountedRef.current ||
@@ -79,6 +106,21 @@ const invalidateOwnerCaches = (owner) => {
   deletePageCacheByPrefix(`tasks:${owner}:`);
   deletePageCacheByPrefix(`dashboard:${owner}`);
 };
+
+function shouldReloadForRealtimeStatus({
+  items,
+  event,
+  statusFilter,
+  overdueOnly,
+  sortBy,
+  loadInFlight,
+}) {
+  if (loadInFlight || overdueOnly) return true;
+  if (String(sortBy || "").toLowerCase() === "status") return true;
+  if (items.some((item) => item.id === event.taskId)) return true;
+  if (!statusFilter) return false;
+  return event.oldStatus === statusFilter || event.newStatus === statusFilter;
+}
 
 function CategoryErrorAlert({ categoryError, retryingCategories, onRetry }) {
   if (!categoryError) return null;
@@ -182,17 +224,18 @@ function TaskPagination({ page, totalPages, onPageChange }) {
 export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { statusFilter, priorityFilter, categoryFilter, searchQuery, page } =
-    parseTaskFilters(searchParams);
+  const filters = parseTaskFilters(searchParams);
+  const { statusFilter, overdueOnly, sortBy, page } = filters;
 
   const ownerKey = user?.id ?? "anon";
   const userCachePrefix = `tasks:${ownerKey}:`;
-  const cacheKey = `${userCachePrefix}${page}:${statusFilter}:${priorityFilter}:${categoryFilter}:${searchQuery}`;
+  const cacheKey = buildTaskCacheKey(userCachePrefix, filters);
   const cached = getPageCache(cacheKey);
 
   const [data, setData] = useState(() => cached?.data ?? EMPTY_DATA);
   const [dataKey, setDataKey] = useState(() => (cached ? cacheKey : null));
   const [categories, setCategories] = useState(() => cached?.categories ?? []);
+  const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(() => !cached);
   const [pendingStatusIds, setPendingStatusIds] = useState(() => new Set());
   const [pendingDeleteIds, setPendingDeleteIds] = useState(() => new Set());
@@ -200,6 +243,7 @@ export default function TaskList() {
   const [error, setError] = useState("");
   const [categoryError, setCategoryError] = useState("");
   const [retryingCategories, setRetryingCategories] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   const isMountedRef = useRef(true);
   const controllerRef = useRef(null);
@@ -213,8 +257,12 @@ export default function TaskList() {
   currentOwnerRef.current = ownerKey;
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
+  const categoriesLoadedRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const loadInFlightRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ silent = false } = {}) => {
     if (!isMountedRef.current) return;
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -223,31 +271,26 @@ export default function TaskList() {
     const gen = ++requestGenRef.current;
     const loadOwner = currentOwnerRef.current;
 
-    const params = buildTaskQueryParams({
-      page,
-      statusFilter,
-      priorityFilter,
-      categoryFilter,
-      searchQuery,
-    });
+    const params = buildTaskQueryParams(parseTaskFilters(searchParamsRef.current));
 
-    const cachedEntry = getPageCache(cacheKey);
+    const cachedEntry = silent ? null : getPageCache(cacheKey);
     if (cachedEntry) {
       setData(cachedEntry.data ?? EMPTY_DATA);
       setDataKey(cacheKey);
-      setCategories(toArray(cachedEntry.categories));
-      setCategoryError("");
+      if (!categoriesLoadedRef.current && cachedEntry.categories?.length) {
+        const cachedCats = toArray(cachedEntry.categories);
+        categoriesRef.current = cachedCats;
+        setCategories(cachedCats);
+      }
       setLoading(false);
-    } else {
+    } else if (!silent) {
       setLoading(true);
     }
 
     setError("");
+    loadInFlightRef.current = true;
     try {
-      const [tasksRes, catsOutcome] = await Promise.all([
-        getTasks(params, { signal }),
-        settleLookup(getCategories()),
-      ]);
+      const tasksRes = await getTasks(params, { signal });
       const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
       if (isStaleLoad(staleCtx)) return;
       const nextData = tasksRes ?? EMPTY_DATA;
@@ -258,16 +301,10 @@ export default function TaskList() {
         setSearchParams(clamped, { replace: true });
         return;
       }
-      const nextCats = resolveCategoriesFromOutcome(
-        catsOutcome,
-        categoriesRef.current,
-        setCategories,
-        setCategoryError
-      );
       setData(nextData);
       setDataKey(cacheKey);
       setLoading(false);
-      setPageCache(cacheKey, { data: nextData, categories: nextCats });
+      setPageCache(cacheKey, { data: nextData, categories: categoriesRef.current });
     } catch (e) {
       const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
       if (isStaleLoad(staleCtx) || isCanceledError(e)) {
@@ -275,28 +312,32 @@ export default function TaskList() {
       }
       setError(getErrorMessage(e));
       setLoading(false);
+    } finally {
+      clearLoadInFlight(loadInFlightRef, requestGenRef, gen);
     }
-  }, [page, statusFilter, priorityFilter, categoryFilter, searchQuery, cacheKey, setSearchParams]);
+  }, [page, cacheKey, setSearchParams]);
 
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  const retryCategories = useCallback(async () => {
+  const fetchCategories = useCallback(async ({ isRetry = false } = {}) => {
     if (!isMountedRef.current) return;
     const gen = ++categoryGenRef.current;
-    const retryOwner = currentOwnerRef.current;
-    setRetryingCategories(true);
+    const fetchOwner = currentOwnerRef.current;
+    setRetryingCategories(isRetry);
     setCategoryError("");
     try {
       const catsRes = await getCategories();
       if (
         !isMountedRef.current ||
         categoryGenRef.current !== gen ||
-        currentOwnerRef.current !== retryOwner
+        currentOwnerRef.current !== fetchOwner
       ) {
         return;
       }
       const nextCats = toArray(catsRes);
+      categoriesLoadedRef.current = true;
+      categoriesRef.current = nextCats;
       setCategories(nextCats);
       const currentEntry = getPageCache(cacheKeyRef.current);
       if (currentEntry) {
@@ -306,17 +347,22 @@ export default function TaskList() {
       if (
         !isMountedRef.current ||
         categoryGenRef.current !== gen ||
-        currentOwnerRef.current !== retryOwner
+        currentOwnerRef.current !== fetchOwner
       ) {
         return;
       }
       setCategoryError(getErrorMessage(e));
     } finally {
-      if (isMountedRef.current && categoryGenRef.current === gen) {
+      if (isRetry && isMountedRef.current && categoryGenRef.current === gen) {
         setRetryingCategories(false);
       }
     }
   }, []);
+
+  const retryCategories = useCallback(
+    () => fetchCategories({ isRetry: true }),
+    [fetchCategories]
+  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -332,16 +378,49 @@ export default function TaskList() {
   }, []);
 
   useEffect(() => {
+    categoriesLoadedRef.current = false;
+    void fetchCategories();
+  }, [ownerKey, fetchCategories]);
+
+  useEffect(() => {
+    let active = true;
+    getUserLookup()
+      .then((res) => {
+        if (active && isMountedRef.current) setAssignees(toArray(res));
+      })
+      .catch(() => {
+        // Assignee filter remains optional if lookup fails.
+      });
+    return () => {
+      active = false;
+    };
+  }, [ownerKey]);
+
+  useEffect(() => {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
 
   const updateFilter = (key, val) => {
-    const next = new URLSearchParams(searchParams);
+    const next = new URLSearchParams(searchParamsRef.current);
     if (val) next.set(key, val);
     else next.delete(key);
     next.set("page", "1");
     setSearchParams(next, { replace: key === "search" });
+  };
+
+  const updateSort = (nextSortBy, nextSortDir) => {
+    const next = new URLSearchParams(searchParamsRef.current);
+    if (nextSortBy && nextSortBy !== "createdAt") next.set("sortBy", nextSortBy);
+    else next.delete("sortBy");
+    if (nextSortDir && nextSortDir !== "desc") next.set("sortDir", nextSortDir);
+    else next.delete("sortDir");
+    next.set("page", "1");
+    setSearchParams(next);
+  };
+
+  const clearFilters = () => {
+    setSearchParams(new URLSearchParams(), { replace: true });
   };
 
   const goToPage = (nextPage) => {
@@ -352,6 +431,42 @@ export default function TaskList() {
 
   const canReloadForOwner = (owner) =>
     isMountedRef.current && currentOwnerRef.current === owner;
+
+  const handleRealtimeStatusUpdate = useCallback(
+    (event) => {
+      if (!isMountedRef.current || !event?.taskId) return;
+      invalidateOwnerCaches(currentOwnerRef.current);
+
+      const currentItems = dataRef.current?.items ?? [];
+      if (
+        shouldReloadForRealtimeStatus({
+          items: currentItems,
+          event,
+          statusFilter,
+          overdueOnly,
+          sortBy,
+          loadInFlight: loadInFlightRef.current,
+        })
+      ) {
+        requestGenRef.current += 1;
+        void loadRef.current({ silent: true });
+      }
+    },
+    [statusFilter, overdueOnly, sortBy]
+  );
+
+  const handleRealtimeReconnected = useCallback(() => {
+    if (!isMountedRef.current) return;
+    invalidateOwnerCaches(currentOwnerRef.current);
+    requestGenRef.current += 1;
+    void loadRef.current({ silent: true });
+  }, []);
+
+  const realtimeState = useTaskStatusRealtime(
+    user?.id,
+    handleRealtimeStatusUpdate,
+    handleRealtimeReconnected
+  );
 
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;
@@ -433,64 +548,51 @@ export default function TaskList() {
   const totalPages = Math.max(1, data.totalPages || Math.ceil((data.totalCount || 0) / PAGE_SIZE));
   const canDelete = (task) => isAdmin || task.createdById === user?.id;
 
+  const handleTasksImported = useCallback((result) => {
+    setImportResult(result);
+    if (result?.importedCount > 0) {
+      invalidateOwnerCaches(currentOwnerRef.current);
+      requestGenRef.current += 1;
+      void loadRef.current({ silent: true });
+    }
+  }, []);
+
+  const exportFilterParams = buildFilterQueryFields(filters);
+
   return (
     <>
       <PageHeader
         title="Tasks"
         subtitle={isAdmin ? "Manage all tasks across the workspace" : "Create, track, and update your tasks"}
-        actions={<Link to="/tasks/new" className="btn-primary">+ New Task</Link>}
+        actions={
+          <div className="row-actions">
+            <LiveBadge state={realtimeState} />
+            <TaskTransferControls
+              filterParams={exportFilterParams}
+              onImported={handleTasksImported}
+              onError={setError}
+            />
+            <Link to="/tasks/new" className="btn-primary">+ New Task</Link>
+          </div>
+        }
       />
 
       <ErrorAlert message={error} onClose={() => setError("")} />
+      <ImportResultAlert result={importResult} onClose={() => setImportResult(null)} />
       <CategoryErrorAlert
         categoryError={categoryError}
         retryingCategories={retryingCategories}
         onRetry={() => void retryCategories()}
       />
 
-      <div className="filters-bar" role="search" aria-label="Filter tasks">
-        <input
-          type="search"
-          className="filter-input"
-          placeholder="Search by title, description, or assignee..."
-          value={searchQuery}
-          onChange={(e) => updateFilter("search", e.target.value)}
-        />
-        <select
-          className="filter-select"
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={(e) => updateFilter("status", e.target.value)}
-        >
-          <option value="">All statuses</option>
-          <option value="Pending">Pending</option>
-          <option value="InProgress">In Progress</option>
-          <option value="Completed">Completed</option>
-        </select>
-        <select
-          className="filter-select"
-          aria-label="Filter by priority"
-          value={priorityFilter}
-          onChange={(e) => updateFilter("priority", e.target.value)}
-        >
-          <option value="">All priorities</option>
-          <option value="Low">Low</option>
-          <option value="Medium">Medium</option>
-          <option value="High">High</option>
-          <option value="Critical">Critical</option>
-        </select>
-        <select
-          className="filter-select"
-          aria-label="Filter by category"
-          value={categoryFilter}
-          onChange={(e) => updateFilter("categoryId", e.target.value)}
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </div>
+      <TaskFiltersBar
+        filters={filters}
+        categories={categories}
+        assignees={assignees}
+        onUpdateFilter={updateFilter}
+        onUpdateSort={updateSort}
+        onClearFilters={clearFilters}
+      />
 
       {loading && !isCurrentData && !error && (
         <div className="form-card" aria-busy="true" aria-label="Loading tasks">

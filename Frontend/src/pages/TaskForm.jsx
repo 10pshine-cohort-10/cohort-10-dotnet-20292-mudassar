@@ -39,6 +39,57 @@ const extractTaskFields = (taskRes) => ({
   rowVersion: taskRes.rowVersion || "",
 });
 
+const buildRetainedOption = (items, value, label) => {
+  const stringValue = String(value || "");
+  if (!stringValue) return null;
+  if (items.some((item) => String(item.id) === stringValue)) return null;
+  return { id: stringValue, label };
+};
+
+const applyLookupRetryResult = (outcome, selectedId, setItems, setRetained) => {
+  if (!outcome.attempted || !outcome.ok) return;
+  const nextItems = toArray(outcome.value);
+  setItems(nextItems);
+  const currentId = String(selectedId || "");
+  if (!currentId || nextItems.some((item) => String(item.id) === currentId)) {
+    setRetained(null);
+  }
+};
+
+function LookupSelectField({
+  id,
+  label,
+  value,
+  onChange,
+  emptyLabel,
+  items,
+  getItemLabel,
+  retainedOption,
+  fallbackLabel,
+}) {
+  const stringValue = String(value || "");
+  const hasMatch =
+    Boolean(stringValue) && items.some((item) => String(item.id) === stringValue);
+  const showTemporaryOption = Boolean(stringValue && !hasMatch);
+  const temporaryLabel =
+    retainedOption?.id === stringValue ? retainedOption.label : fallbackLabel;
+
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} className="select-field" value={value} onChange={onChange}>
+        <option value="">{emptyLabel}</option>
+        {showTemporaryOption && <option value={value}>{temporaryLabel}</option>}
+        {items.map((item) => (
+          <option key={item.id} value={String(item.id)}>
+            {getItemLabel(item)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export default function TaskForm() {
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -56,6 +107,8 @@ export default function TaskForm() {
 
   const [categories, setCategories] = useState([]);
   const [users, setUsers] = useState([]);
+  const [retainedCategory, setRetainedCategory] = useState(null);
+  const [retainedAssignee, setRetainedAssignee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +121,10 @@ export default function TaskForm() {
   const saveGenRef = useRef(0);
   const lookupGenRef = useRef(0);
   const failedLookupsRef = useRef({ categories: false, users: false });
+  const categoryIdRef = useRef(categoryId);
+  categoryIdRef.current = categoryId;
+  const assignedToIdRef = useRef(assignedToId);
+  assignedToIdRef.current = assignedToId;
 
   const retryLookups = useCallback(async () => {
     const gen = ++lookupGenRef.current;
@@ -84,13 +141,14 @@ export default function TaskForm() {
 
     if (lookupGenRef.current !== gen) return;
 
-    if (catsOutcome.attempted && catsOutcome.ok) setCategories(toArray(catsOutcome.value));
-    if (usersOutcome.attempted && usersOutcome.ok) setUsers(toArray(usersOutcome.value));
+    applyLookupRetryResult(catsOutcome, categoryIdRef.current, setCategories, setRetainedCategory);
+    applyLookupRetryResult(usersOutcome, assignedToIdRef.current, setUsers, setRetainedAssignee);
 
-    failedLookupsRef.current = {
+    const nextFailedLookups = {
       categories: catsOutcome.attempted ? !catsOutcome.ok : needCategories,
       users: usersOutcome.attempted ? !usersOutcome.ok : needUsers,
     };
+    failedLookupsRef.current = nextFailedLookups;
     setLookupError(getFirstLookupError(catsOutcome, usersOutcome));
     setRetryingLookups(false);
   }, []);
@@ -113,8 +171,10 @@ export default function TaskForm() {
       ]);
       if (requestGenRef.current !== gen) return;
 
-      setCategories(catsOutcome.ok ? toArray(catsOutcome.value) : []);
-      setUsers(usersOutcome.ok ? toArray(usersOutcome.value) : []);
+      const nextCategories = catsOutcome.ok ? toArray(catsOutcome.value) : [];
+      const nextUsers = usersOutcome.ok ? toArray(usersOutcome.value) : [];
+      setCategories(nextCategories);
+      setUsers(nextUsers);
       failedLookupsRef.current = {
         categories: !catsOutcome.ok,
         users: !usersOutcome.ok,
@@ -131,6 +191,23 @@ export default function TaskForm() {
         setCategoryId(fields.categoryId);
         setAssignedToId(fields.assignedToId);
         setRowVersion(fields.rowVersion);
+        setRetainedCategory(
+          buildRetainedOption(
+            nextCategories,
+            fields.categoryId,
+            taskRes.categoryName || `Category #${fields.categoryId}`
+          )
+        );
+        setRetainedAssignee(
+          buildRetainedOption(
+            nextUsers,
+            fields.assignedToId,
+            taskRes.assignedToName || "Current assignee"
+          )
+        );
+      } else {
+        setRetainedCategory(null);
+        setRetainedAssignee(null);
       }
     } catch (e) {
       if (requestGenRef.current === gen) {
@@ -321,35 +398,29 @@ export default function TaskForm() {
               </div>
             )}
 
-            <div className="field">
-              <label htmlFor="task-category">Category</label>
-              <select
-                id="task-category"
-                className="select-field"
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-              >
-                <option value="">Uncategorized</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+            <LookupSelectField
+              id="task-category"
+              label="Category"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              emptyLabel="Uncategorized"
+              items={categories}
+              getItemLabel={(c) => c.name}
+              retainedOption={retainedCategory}
+              fallbackLabel={`Category #${categoryId}`}
+            />
 
-            <div className="field">
-              <label htmlFor="task-assignee">Assign To</label>
-              <select
-                id="task-assignee"
-                className="select-field"
-                value={assignedToId}
-                onChange={(e) => setAssignedToId(e.target.value)}
-              >
-                <option value="">Unassigned</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.fullName}</option>
-                ))}
-              </select>
-            </div>
+            <LookupSelectField
+              id="task-assignee"
+              label="Assign To"
+              value={assignedToId}
+              onChange={(e) => setAssignedToId(e.target.value)}
+              emptyLabel="Unassigned"
+              items={users}
+              getItemLabel={(u) => u.fullName}
+              retainedOption={retainedAssignee}
+              fallbackLabel="Current assignee"
+            />
 
             <Field
               id="task-duedate"

@@ -31,7 +31,12 @@ public record TaskFilterParams(
     TaskPriority? Priority = null,
     int? CategoryId = null,
     Guid? AssignedToId = null,
-    string? Search = null);
+    string? Search = null,
+    DateTime? DueFrom = null,
+    DateTime? DueTo = null,
+    bool OverdueOnly = false,
+    string? SortBy = null,
+    string? SortDir = null);
 
 public record TaskDto(
     int Id,

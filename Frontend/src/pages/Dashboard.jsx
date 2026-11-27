@@ -5,8 +5,10 @@ import { getSummary } from "../api/dashboardApi";
 import { getTasks } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
-import { getPageCache, setPageCache } from "../utils/pageCache";
+import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pageCache";
+import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import PageHeader from "../components/PageHeader";
+import LiveBadge from "../components/LiveBadge";
 import SummaryCard from "../components/SummaryCard";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -80,10 +82,49 @@ export default function Dashboard() {
     setLoading(false);
   }, [cacheKey]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     void load();
     return () => controllerRef.current?.abort();
   }, [load]);
+
+  const handleRealtimeStatusUpdate = useCallback(
+    (event) => {
+      if (!event?.taskId) return;
+      const owner = user?.id ?? "anon";
+      deletePageCacheByPrefix(`dashboard:${owner}`);
+      deletePageCacheByPrefix(`tasks:${owner}:`);
+      setRecent((prev) =>
+        prev.map((item) =>
+          item.id === event.taskId
+            ? {
+                ...item,
+                status: event.newStatus,
+                updatedAt: event.updatedAt ?? item.updatedAt,
+                rowVersion: event.rowVersion ?? item.rowVersion,
+              }
+            : item
+        )
+      );
+      void loadRef.current();
+    },
+    [user?.id]
+  );
+
+  const handleRealtimeReconnected = useCallback(() => {
+    const owner = user?.id ?? "anon";
+    deletePageCacheByPrefix(`dashboard:${owner}`);
+    deletePageCacheByPrefix(`tasks:${owner}:`);
+    void loadRef.current();
+  }, [user?.id]);
+
+  const realtimeState = useTaskStatusRealtime(
+    user?.id,
+    handleRealtimeStatusUpdate,
+    handleRealtimeReconnected
+  );
 
   const next = recent
     .filter((t) => t.status !== "Completed")
@@ -94,7 +135,12 @@ export default function Dashboard() {
       <PageHeader
         title={`Welcome back, ${user?.fullName ?? ""}`}
         subtitle={isAdmin ? "Showing all tasks across the organization" : "Showing your tasks"}
-        actions={<Link to="/tasks/new" className="btn-primary">+ New Task</Link>}
+        actions={
+          <div className="row-actions">
+            <LiveBadge state={realtimeState} />
+            <Link to="/tasks/new" className="btn-primary">+ New Task</Link>
+          </div>
+        }
       />
 
       {error && (

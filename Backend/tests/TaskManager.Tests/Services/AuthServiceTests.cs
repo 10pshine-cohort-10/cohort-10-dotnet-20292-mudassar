@@ -157,6 +157,7 @@ public class AuthServiceTests : IAsyncLifetime
         _users.Setup(u => u.IsLockedOutAsync(user)).ReturnsAsync(false);
         _users.Setup(u => u.CheckPasswordAsync(user, It.IsAny<string>())).ReturnsAsync(true);
         _users.Setup(u => u.ResetAccessFailedCountAsync(user)).ReturnsAsync(IdentityResult.Success);
+        _users.Setup(u => u.FindByIdAsync(user.Id.ToString())).ReturnsAsync(user);
         _users.Setup(u => u.GetRolesAsync(user)).ReturnsAsync(roles);
         _jwt.Setup(j => j.Create(user, roles)).Returns(("token-value", expires));
 

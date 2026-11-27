@@ -9,6 +9,8 @@ namespace TaskManager.Api.Services;
 
 public interface ITaskService
 {
+    Task<PagedResult<TaskDto>> GetAllAsync(Guid userId, bool isAdmin, TaskFilterParams filter);
+
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
     Task<PagedResult<TaskDto>> GetAllAsync(
         Guid userId,
@@ -32,20 +34,22 @@ public class TaskService : ITaskService
     private const string TaskNotFoundMessage = "Task was not found.";
     private readonly AppDbContext db;
     private readonly ILogger<TaskService> log;
+    private readonly ITaskRealtimeNotifier realtimeNotifier;
 
-    public TaskService(AppDbContext db, ILogger<TaskService> log)
+    public TaskService(
+        AppDbContext db,
+        ILogger<TaskService> log,
+        ITaskRealtimeNotifier? realtimeNotifier = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(log);
         this.db = db;
         this.log = log;
+        this.realtimeNotifier = realtimeNotifier ?? NullTaskRealtimeNotifier.Instance;
     }
 
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
-    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
-    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
-    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
-    public async Task<PagedResult<TaskDto>> GetAllAsync(
+    public Task<PagedResult<TaskDto>> GetAllAsync(
         Guid userId,
         bool isAdmin,
         int page = 1,
@@ -54,48 +58,35 @@ public class TaskService : ITaskService
         TaskPriority? priority = null,
         int? categoryId = null,
         Guid? assignedToId = null,
-        string? search = null)
+        string? search = null) =>
+        GetAllAsync(
+            userId,
+            isAdmin,
+            new TaskFilterParams(page, pageSize, status, priority, categoryId, assignedToId, search));
+
+    public async Task<PagedResult<TaskDto>> GetAllAsync(Guid userId, bool isAdmin, TaskFilterParams filter)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        ArgumentNullException.ThrowIfNull(filter);
 
-        var query = db.Tasks.AsNoTracking();
+        var page = Math.Max(1, filter.Page);
+        var pageSize = Math.Clamp(filter.PageSize, 1, 100);
 
-        if (!isAdmin)
-            query = query.Where(t => t.CreatedById == userId || t.AssignedToId == userId);
-
-        if (status.HasValue)
-            query = query.Where(t => t.Status == status.Value);
-
-        if (priority.HasValue)
-            query = query.Where(t => t.Priority == priority.Value);
-
-        if (categoryId.HasValue)
-            query = query.Where(t => t.CategoryId == categoryId.Value);
-
-        if (assignedToId.HasValue)
-            query = query.Where(t => t.AssignedToId == assignedToId.Value);
-
-        if (!string.IsNullOrWhiteSpace(search))
-        {
-            var term = search.Trim().ToLowerInvariant();
-            query = query.Where(t =>
-                t.Title.ToLower().Contains(term) ||
-                (t.Description != null && t.Description.ToLower().Contains(term)) ||
-                (t.AssignedTo != null && t.AssignedTo.FullName.ToLower().Contains(term)));
-        }
+        var query = ApplyFilters(db.Tasks.AsNoTracking(), userId, isAdmin, filter);
 
         var totalCount = await query.CountAsync();
         var offset = (long)(page - 1) * pageSize;
         if (offset > int.MaxValue || offset >= totalCount)
             return new PagedResult<TaskDto>([], totalCount, page, pageSize);
 
-        var entities = await query
-            .Include(t => t.Category)
-            .Include(t => t.CreatedBy)
-            .Include(t => t.AssignedTo)
-            .OrderByDescending(t => t.CreatedAt)
-            .ThenByDescending(t => t.Id)
+        var orderedQuery = ApplySorting(
+            query
+                .Include(t => t.Category)
+                .Include(t => t.CreatedBy)
+                .Include(t => t.AssignedTo),
+            filter.SortBy,
+            filter.SortDir);
+
+        var entities = await orderedQuery
             .Skip((int)offset)
             .Take(pageSize)
             .ToListAsync();
@@ -103,6 +94,104 @@ public class TaskService : ITaskService
         var items = entities.Select(MapToDto).ToList();
 
         return new PagedResult<TaskDto>(items, totalCount, page, pageSize);
+    }
+
+    [SuppressMessage("Globalization", "CA1304:Specify CultureInfo", Justification = "EF Core LINQ translator requires parameterless ToLower() to emit SQL LOWER().")]
+    [SuppressMessage("Globalization", "CA1311:Specify a culture or use an invariant version", Justification = "EF Core LINQ translator does not translate ToLowerInvariant().")]
+    [SuppressMessage("Performance", "CA1862:Use the 'StringComparison' method overloads to perform case-insensitive string comparisons", Justification = "EF Core LINQ translator does not translate StringComparison overloads to SQL.")]
+    internal static IQueryable<TaskItem> ApplyFilters(
+        IQueryable<TaskItem> query,
+        Guid userId,
+        bool isAdmin,
+        TaskFilterParams filter)
+    {
+        if (!isAdmin)
+            query = query.Where(t => t.CreatedById == userId || t.AssignedToId == userId);
+
+        if (filter.Status.HasValue)
+            query = query.Where(t => t.Status == filter.Status.Value);
+
+        if (filter.Priority.HasValue)
+            query = query.Where(t => t.Priority == filter.Priority.Value);
+
+        if (filter.CategoryId.HasValue)
+            query = query.Where(t => t.CategoryId == filter.CategoryId.Value);
+
+        if (filter.AssignedToId.HasValue)
+            query = query.Where(t => t.AssignedToId == filter.AssignedToId.Value);
+
+        query = ApplyDateFilters(query, filter);
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var term = filter.Search.Trim().ToLowerInvariant();
+            query = query.Where(t =>
+                t.Title.ToLower().Contains(term) ||
+                (t.Description != null && t.Description.ToLower().Contains(term)) ||
+                (t.AssignedTo != null && t.AssignedTo.FullName.ToLower().Contains(term)));
+        }
+
+        return query;
+    }
+
+    private static IQueryable<TaskItem> ApplyDateFilters(IQueryable<TaskItem> query, TaskFilterParams filter)
+    {
+        if (filter.DueFrom.HasValue)
+        {
+            var fromDate = filter.DueFrom.Value.Date;
+            query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value >= fromDate);
+        }
+
+        if (filter.DueTo.HasValue)
+        {
+            var dueToDate = filter.DueTo.Value.Date;
+            if (dueToDate == DateTime.MaxValue.Date)
+            {
+                query = query.Where(t => t.DueDate.HasValue);
+            }
+            else
+            {
+                var toExclusive = dueToDate.AddDays(1);
+                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value < toExclusive);
+            }
+        }
+
+        if (filter.OverdueOnly)
+        {
+            var todayUtc = DateTime.UtcNow.Date;
+            query = query.Where(t =>
+                t.Status != TaskItemStatus.Completed &&
+                t.DueDate.HasValue &&
+                t.DueDate.Value < todayUtc);
+        }
+
+        return query;
+    }
+
+    internal static IOrderedQueryable<TaskItem> ApplySorting(
+        IQueryable<TaskItem> query,
+        string? sortBy,
+        string? sortDir)
+    {
+        var asc = string.Equals(sortDir?.Trim(), "asc", StringComparison.OrdinalIgnoreCase);
+        return (sortBy?.Trim().ToLowerInvariant()) switch
+        {
+            "title" => asc
+                ? query.OrderBy(t => t.Title).ThenByDescending(t => t.Id)
+                : query.OrderByDescending(t => t.Title).ThenByDescending(t => t.Id),
+            "priority" => asc
+                ? query.OrderBy(t => t.Priority).ThenByDescending(t => t.Id)
+                : query.OrderByDescending(t => t.Priority).ThenByDescending(t => t.Id),
+            "status" => asc
+                ? query.OrderBy(t => t.Status).ThenByDescending(t => t.Id)
+                : query.OrderByDescending(t => t.Status).ThenByDescending(t => t.Id),
+            "duedate" => asc
+                ? query.OrderBy(t => t.DueDate == null).ThenBy(t => t.DueDate).ThenByDescending(t => t.Id)
+                : query.OrderBy(t => t.DueDate == null).ThenByDescending(t => t.DueDate).ThenByDescending(t => t.Id),
+            _ => asc
+                ? query.OrderBy(t => t.CreatedAt).ThenBy(t => t.Id)
+                : query.OrderByDescending(t => t.CreatedAt).ThenByDescending(t => t.Id)
+        };
     }
 
     public async Task<TaskDto> GetByIdAsync(int id, Guid userId, bool isAdmin)
@@ -217,8 +306,17 @@ public class TaskService : ITaskService
 
         await SaveWithConcurrencyGuardAsync(task.Id);
 
+        var statusEvent = oldStatus != task.Status
+            ? CreateStatusUpdatedEvent(task, oldStatus, userId)
+            : null;
+
         log.LogInformation("User {UserId} updated task {TaskId}", userId, task.Id);
-        return await GetByIdAsync(task.Id, userId, isAdmin: true);
+        var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
+
+        if (statusEvent is not null)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(statusEvent);
+
+        return updated;
     }
 
     public async Task<TaskDto> UpdateStatusAsync(int id, TaskItemStatus status, Guid userId, bool isAdmin)
@@ -248,11 +346,20 @@ public class TaskService : ITaskService
 
         await SaveWithConcurrencyGuardAsync(task.Id);
 
+        var statusEvent = oldStatus != task.Status
+            ? CreateStatusUpdatedEvent(task, oldStatus, userId)
+            : null;
+
         log.LogInformation(
             "User {UserId} changed task {TaskId} status from {OldStatus} to {NewStatus}",
             userId, task.Id, oldStatus, status);
 
-        return await GetByIdAsync(task.Id, userId, isAdmin: true);
+        var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
+
+        if (statusEvent is not null)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(statusEvent);
+
+        return updated;
     }
 
     public async Task DeleteAsync(int id, Guid userId, bool isAdmin)
@@ -331,6 +438,20 @@ public class TaskService : ITaskService
             throw new ConflictException("The task was modified by another user. Please reload and try again.");
         }
     }
+
+    private static TaskStatusUpdatedEvent CreateStatusUpdatedEvent(
+        TaskItem task,
+        TaskItemStatus oldStatus,
+        Guid updatedById) => new(
+        task.Id,
+        task.Title,
+        oldStatus,
+        task.Status,
+        task.UpdatedAt ?? DateTime.UtcNow,
+        Convert.ToBase64String(task.RowVersion ?? []),
+        updatedById,
+        task.CreatedById,
+        task.AssignedToId);
 
     private static TaskDto MapToDto(TaskItem t) => new(
         t.Id,

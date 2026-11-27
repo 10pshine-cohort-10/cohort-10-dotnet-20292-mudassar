@@ -17,7 +17,7 @@ const schema = z
       .min(8, "Use at least 8 characters")
       .regex(/[A-Z]/, "Add an uppercase letter")
       .regex(/[a-z]/, "Add a lowercase letter")
-      .regex(/[0-9]/, "Add a number")
+      .regex(/\d/, "Add a number")
       .regex(/[^A-Za-z0-9]/, "Add a special character"),
     confirmPassword: z.string().min(1, "Confirm your password"),
   })
@@ -54,10 +54,10 @@ export default function Signup() {
       {success && <ErrorAlert type="success" message={successMessage} />}
       <ErrorAlert message={error} onClose={() => setError("")} />
       <form onSubmit={handleSubmit(onSubmit)} noValidate>
-        <Field id="fullName" label="Full name" autoComplete="name" placeholder="Jane Doe" error={errors.fullName?.message} {...register("fullName")} />
-        <Field id="email" label="Email" type="email" autoComplete="email" placeholder="you@company.com" error={errors.email?.message} {...register("email")} />
-        <Field id="password" label="Password" type="password" autoComplete="new-password" placeholder="8+ characters" error={errors.password?.message} {...register("password")} />
-        <Field id="confirmPassword" label="Confirm password" type="password" autoComplete="new-password" placeholder="Repeat your password" error={errors.confirmPassword?.message} {...register("confirmPassword")} />
+        <Field id="fullName" label="Full name" autoComplete="name" placeholder="Jane Doe" aria-required="true" error={errors.fullName?.message} {...register("fullName")} />
+        <Field id="email" label="Email" type="email" autoComplete="email" placeholder="you@company.com" aria-required="true" error={errors.email?.message} {...register("email")} />
+        <Field id="password" label="Password" type="password" autoComplete="new-password" placeholder="8+ characters" aria-required="true" error={errors.password?.message} {...register("password")} />
+        <Field id="confirmPassword" label="Confirm password" type="password" autoComplete="new-password" placeholder="Repeat your password" aria-required="true" error={errors.confirmPassword?.message} {...register("confirmPassword")} />
         <button className="btn" type="submit" disabled={isSubmitting || success}>
           {isSubmitting && <span className="spinner" aria-hidden="true" />}
           {isSubmitting ? "Creating account" : "Create account"}

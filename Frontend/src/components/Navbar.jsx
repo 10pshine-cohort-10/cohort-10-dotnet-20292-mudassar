@@ -19,8 +19,13 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
 
   const handleLogout = async () => {
-    await logout();
-    navigate("/login", { replace: true });
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch {
+      // AuthProvider already clears the user and sets restoreError so the recovery UI is shown;
+      // avoid navigating to /login while sign-out cleanup failed.
+    }
   };
   const link = ({ isActive }) => `link${isActive ? " active" : ""}`;
   const close = () => setOpen(false);
@@ -30,9 +35,9 @@ export default function Navbar() {
       <div className="nav-in">
         <Link to="/dashboard" className="brand-link" onClick={close}>
           <span className="brand-mark" aria-hidden="true">
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3L13 4.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </span>
-          TaskFlow
+          <span>TaskFlow</span>
         </Link>
         <div id="menu" className={`menu${open ? " open" : ""}`}>
           {NAV_ITEMS.map((item) => (
@@ -48,7 +53,7 @@ export default function Navbar() {
         </div>
         <ThemeToggle />
         <button className="burger" aria-label="Toggle menu" aria-expanded={open} aria-controls="menu" onClick={() => setOpen((o) => !o)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
           </svg>
         </button>
