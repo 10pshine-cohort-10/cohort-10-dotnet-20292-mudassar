@@ -123,6 +123,8 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
                 {
                     entry.Entity.DeletedAt = now;
                     entry.Entity.UpdatedAt = now;
+                    entry.Property(t => t.DeletedAt).IsModified = true;
+                    entry.Property(t => t.UpdatedAt).IsModified = true;
                 }
 
                 if (entry.Entity.Id != 0)

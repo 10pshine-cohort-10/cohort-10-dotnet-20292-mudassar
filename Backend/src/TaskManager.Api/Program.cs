@@ -69,8 +69,8 @@ try
     var app = builder.Build();
 
     app.UseHttpsRedirection();
-    app.UseCors("Frontend");
-    app.UseSerilogRequestLogging(options =>
+    app.UseCors("Frontend");                          // before exception middleware so error responses keep CORS headers
+    app.UseSerilogRequestLogging(options =>           // before GlobalExceptionMiddleware so it observes final handled status codes
     {
         options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
         {
@@ -81,6 +81,7 @@ try
             diagnosticContext.Set("TraceId", httpContext.TraceIdentifier);
         };
     });
+    app.UseMiddleware<GlobalExceptionMiddleware>();   // wraps downstream pipeline in RFC 7807 ProblemDetails
 
     if (app.Environment.IsDevelopment())
     {

@@ -170,21 +170,31 @@ export function subscribeTokenChanges(listener) {
   return () => listeners.delete(listener);
 }
 
+let useMemoryOnly = false;
+
 function openAuthDb() {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
+  return new Promise((resolve) => {
+    if (useMemoryOnly || typeof indexedDB === "undefined") {
       resolve(null);
       return;
     }
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("Failed to open IndexedDB."));
+    try {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => {
+        useMemoryOnly = true;
+        resolve(null);
+      };
+    } catch {
+      useMemoryOnly = true;
+      resolve(null);
+    }
   });
 }
 
