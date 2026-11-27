@@ -106,12 +106,19 @@ export function AuthProvider({ children, storage: storageProp }) {
   const [restoreError, setRestoreError] = useState("");
 
   const sessionVersionRef = useRef(0);
+  const restoreRequestIdRef = useRef(0);
   const logoutPromiseRef = useRef(null);
   const suppressStoredTokenRef = useRef(false);
   const userRef = useRef(userState);
   userRef.current = userState;
 
   const getSessionVersion = useCallback(() => sessionVersionRef.current, []);
+
+  const isCurrentRestore = useCallback(
+    (version, requestId) =>
+      sessionVersionRef.current === version && restoreRequestIdRef.current === requestId,
+    []
+  );
 
   // Session-scoped profile updater: never restores a user after logout or across a different session.
   const setUser = useCallback((nextUser, expectedSessionVersion) => {
@@ -124,39 +131,44 @@ export function AuthProvider({ children, storage: storageProp }) {
     });
   }, []);
 
-  const clearSuppressedSession = useCallback(async (version) => {
+  const clearSuppressedSession = useCallback(async (version, requestId) => {
     const cleared = await tryClearSuppressedToken(storage);
     if (cleared) suppressStoredTokenRef.current = false;
-    if (sessionVersionRef.current !== version) return;
+    if (!isCurrentRestore(version, requestId)) return;
     setActiveAccountIdentity(null);
     setUserState(null);
     setRestoreError(cleared ? "" : INCOMPLETE_LOGOUT_ERROR);
-  }, [storage]);
+  }, [isCurrentRestore, storage]);
 
-  const handleRestoreFailure = useCallback(async (err, version, attemptedToken, retryRestoreFn) => {
-    if (!isAuthFailure(err)) {
-      // Keep the token on storage/network/5xx errors so the user can retry.
-      setRestoreError(getErrorMessage(err));
-      return;
-    }
-    const failedToken = err?.config?._requestToken ?? attemptedToken;
-    const hasNewerToken = await reconcileFailedAuthToken(storage, failedToken);
-    if (sessionVersionRef.current !== version) return;
-    if (hasNewerToken) {
-      sessionVersionRef.current += 1;
+  const handleRestoreFailure = useCallback(
+    async ({ err, version, requestId, attemptedToken, retryRestoreFn }) => {
+      if (!isCurrentRestore(version, requestId)) return;
+      if (!isAuthFailure(err)) {
+        // Keep the token on storage/network/5xx errors so the user can retry.
+        setRestoreError(getErrorMessage(err));
+        return;
+      }
+      const failedToken = err?.config?._requestToken ?? attemptedToken;
+      const hasNewerToken = await reconcileFailedAuthToken(storage, failedToken);
+      if (!isCurrentRestore(version, requestId)) return;
+      if (hasNewerToken) {
+        sessionVersionRef.current += 1;
+        setUserState(null);
+        await retryRestoreFn();
+        return;
+      }
+      setActiveAccountIdentity(null);
       setUserState(null);
-      await retryRestoreFn();
-      return;
-    }
-    setActiveAccountIdentity(null);
-    setUserState(null);
-    setRestoreError("");
-  }, [storage]);
+      setRestoreError("");
+    },
+    [isCurrentRestore, storage]
+  );
 
   const restoreSession = useCallback(async (options) => {
     const silent = Boolean(options?.silent);
     setActiveSessionStorage(storage);
     const version = sessionVersionRef.current;
+    const requestId = ++restoreRequestIdRef.current;
     if (!silent) {
       setLoading(true);
     }
@@ -165,13 +177,13 @@ export function AuthProvider({ children, storage: storageProp }) {
     let attemptedToken = null;
     try {
       if (suppressStoredTokenRef.current) {
-        await clearSuppressedSession(version);
+        await clearSuppressedSession(version, requestId);
         return;
       }
 
       const token = await storage.getToken();
       attemptedToken = token;
-      if (sessionVersionRef.current !== version) return;
+      if (!isCurrentRestore(version, requestId)) return;
 
       if (!token) {
         setActiveAccountIdentity(null);
@@ -182,18 +194,24 @@ export function AuthProvider({ children, storage: storageProp }) {
 
       setActiveAccountIdentity(getTokenAccountIdentity(token));
       const me = await getMe();
-      if (sessionVersionRef.current !== version) return;
+      if (!isCurrentRestore(version, requestId)) return;
       setActiveAccountIdentity(resolveAccountIdentity(me, token));
       setUserState(me);
     } catch (err) {
-      if (sessionVersionRef.current !== version) return;
-      await handleRestoreFailure(err, version, attemptedToken, restoreSession);
+      if (!isCurrentRestore(version, requestId)) return;
+      await handleRestoreFailure({
+        err,
+        version,
+        requestId,
+        attemptedToken,
+        retryRestoreFn: restoreSession,
+      });
     } finally {
       if (!silent && sessionVersionRef.current === version) {
         setLoading(false);
       }
     }
-  }, [clearSuppressedSession, handleRestoreFailure, storage]);
+  }, [clearSuppressedSession, handleRestoreFailure, isCurrentRestore, storage]);
 
   useEffect(() => {
     setActiveSessionStorage(storage);
