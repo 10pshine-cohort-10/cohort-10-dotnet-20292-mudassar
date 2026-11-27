@@ -90,6 +90,12 @@ const toArray = (value) => (Array.isArray(value) ? value : []);
 const computeTotalPages = (res) =>
   res.totalPages || Math.ceil((res.totalCount || 0) / PAGE_SIZE);
 
+const clearLoadInFlight = (loadInFlightRef, requestGenRef, gen) => {
+  if (requestGenRef.current === gen) {
+    loadInFlightRef.current = false;
+  }
+};
+
 const isStaleLoad = ({ isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner }) =>
   !isMountedRef.current ||
   signal.aborted ||
@@ -101,9 +107,17 @@ const invalidateOwnerCaches = (owner) => {
   deletePageCacheByPrefix(`dashboard:${owner}`);
 };
 
-function shouldReloadForRealtimeStatus(items, event, statusFilter, overdueOnly) {
-  const hasTask = items.some((item) => item.id === event.taskId);
-  if (hasTask || overdueOnly) return true;
+function shouldReloadForRealtimeStatus({
+  items,
+  event,
+  statusFilter,
+  overdueOnly,
+  sortBy,
+  loadInFlight,
+}) {
+  if (loadInFlight || overdueOnly) return true;
+  if (String(sortBy || "").toLowerCase() === "status") return true;
+  if (items.some((item) => item.id === event.taskId)) return true;
   if (!statusFilter) return false;
   return event.oldStatus === statusFilter || event.newStatus === statusFilter;
 }
@@ -211,7 +225,7 @@ export default function TaskList() {
   const { user, isAdmin } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = parseTaskFilters(searchParams);
-  const { statusFilter, overdueOnly, page } = filters;
+  const { statusFilter, overdueOnly, sortBy, page } = filters;
 
   const ownerKey = user?.id ?? "anon";
   const userCachePrefix = `tasks:${ownerKey}:`;
@@ -246,6 +260,7 @@ export default function TaskList() {
   const categoriesLoadedRef = useRef(false);
   const dataRef = useRef(data);
   dataRef.current = data;
+  const loadInFlightRef = useRef(false);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!isMountedRef.current) return;
@@ -273,6 +288,7 @@ export default function TaskList() {
     }
 
     setError("");
+    loadInFlightRef.current = true;
     try {
       const tasksRes = await getTasks(params, { signal });
       const staleCtx = { isMountedRef, signal, requestGenRef, gen, currentOwnerRef, loadOwner };
@@ -296,6 +312,8 @@ export default function TaskList() {
       }
       setError(getErrorMessage(e));
       setLoading(false);
+    } finally {
+      clearLoadInFlight(loadInFlightRef, requestGenRef, gen);
     }
   }, [page, cacheKey, setSearchParams]);
 
@@ -420,12 +438,21 @@ export default function TaskList() {
       invalidateOwnerCaches(currentOwnerRef.current);
 
       const currentItems = dataRef.current?.items ?? [];
-      if (shouldReloadForRealtimeStatus(currentItems, event, statusFilter, overdueOnly)) {
+      if (
+        shouldReloadForRealtimeStatus({
+          items: currentItems,
+          event,
+          statusFilter,
+          overdueOnly,
+          sortBy,
+          loadInFlight: loadInFlightRef.current,
+        })
+      ) {
         requestGenRef.current += 1;
         void loadRef.current({ silent: true });
       }
     },
-    [statusFilter, overdueOnly]
+    [statusFilter, overdueOnly, sortBy]
   );
 
   const handleRealtimeReconnected = useCallback(() => {
