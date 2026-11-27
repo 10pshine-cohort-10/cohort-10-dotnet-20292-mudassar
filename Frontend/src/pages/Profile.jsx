@@ -152,6 +152,7 @@ export default function Profile() {
               id="profile-fullname"
               label="Update Full Name"
               value={fullName}
+              disabled={saving}
               onChange={(e) => setFullName(e.target.value)}
               required
             />
@@ -162,6 +163,7 @@ export default function Profile() {
               <button
                 type="button"
                 className="btn-ghost"
+                disabled={saving}
                 onClick={() => {
                   setEditing(false);
                   setFullName(profile?.fullName ?? "");

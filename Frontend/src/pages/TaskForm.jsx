@@ -52,6 +52,7 @@ export default function TaskForm() {
   const [fieldErrors, setFieldErrors] = useState({});
 
   const requestGenRef = useRef(0);
+  const saveGenRef = useRef(0);
 
   const loadForm = useCallback(async () => {
     const gen = ++requestGenRef.current;
@@ -93,6 +94,7 @@ export default function TaskForm() {
     void loadForm();
     return () => {
       requestGenRef.current += 1;
+      saveGenRef.current += 1;
     };
   }, [loadForm]);
 
@@ -113,6 +115,7 @@ export default function TaskForm() {
     e.preventDefault();
     if (!validate()) return;
 
+    const saveGen = ++saveGenRef.current;
     setSaving(true);
     setError("");
     try {
@@ -131,15 +134,23 @@ export default function TaskForm() {
           status,
           rowVersion: rowVersion || null
         });
-        navigate(`/tasks/${updated.id}`);
+        if (saveGenRef.current === saveGen) {
+          navigate(`/tasks/${updated.id}`);
+        }
       } else {
         const created = await createTask(payload);
-        navigate(`/tasks/${created.id}`);
+        if (saveGenRef.current === saveGen) {
+          navigate(`/tasks/${created.id}`);
+        }
       }
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (saveGenRef.current === saveGen) {
+        setError(getErrorMessage(err));
+      }
     } finally {
-      setSaving(false);
+      if (saveGenRef.current === saveGen) {
+        setSaving(false);
+      }
     }
   };
 

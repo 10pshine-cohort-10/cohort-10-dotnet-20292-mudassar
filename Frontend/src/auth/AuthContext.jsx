@@ -2,7 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { getMe, loginRequest, logoutRequest } from "../api/authApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { clearPageCache } from "../utils/pageCache";
-import { defaultSessionStorage, setActiveSessionStorage } from "./tokenStorage";
+import {
+  defaultSessionStorage,
+  setActiveSessionStorage,
+  subscribeTokenChanges,
+} from "./tokenStorage";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -74,23 +78,28 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     setActiveSessionStorage(storage);
     void restoreSession();
 
-    const handleStorage = (event) => {
-      if (event.key !== "token") return;
+    const applyCrossTabTokenChange = () => {
       sessionVersionRef.current += 1;
       logoutInFlightRef.current = false;
       clearPageCache();
-      if (!event.newValue) {
-        setUserState(null);
-        setRestoreError("");
-        setLoading(false);
-        return;
-      }
-      setUserState(null);
       void restoreSession();
     };
 
+    const handleStorage = (event) => {
+      if (event.storageArea && event.storageArea !== window.localStorage) return;
+      if (event.key !== null && event.key !== "token") return;
+      applyCrossTabTokenChange();
+    };
+
+    const unsubscribeChannel = subscribeTokenChanges(() => {
+      applyCrossTabTokenChange();
+    });
+
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    return () => {
+      unsubscribeChannel();
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [restoreSession, storage]);
 
   const login = useCallback(async (email, password) => {
@@ -98,10 +107,19 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
     clearPageCache();
     const data = await loginRequest(email, password);
     sessionVersionRef.current += 1;
+    const loginVersion = sessionVersionRef.current;
     logoutInFlightRef.current = false;
-    await storage.setToken(data.token);
-    setRestoreError("");
-    setUserState(data.user);
+    try {
+      await storage.setToken(data.token);
+      if (sessionVersionRef.current === loginVersion) {
+        setRestoreError("");
+        setUserState(data.user);
+      }
+    } finally {
+      if (sessionVersionRef.current === loginVersion) {
+        setLoading(false);
+      }
+    }
   }, [storage]);
 
   const logout = useCallback(async () => {
@@ -120,9 +138,13 @@ export function AuthProvider({ children, storage = defaultSessionStorage }) {
       if (sessionVersionRef.current === startingVersion) {
         sessionVersionRef.current += 1;
         clearPageCache();
-        await storage.removeToken();
         setRestoreError("");
         setUserState(null);
+        try {
+          await storage.removeToken();
+        } catch {
+          /* best-effort removal so logout always completes */
+        }
       }
     }
   }, [storage]);
