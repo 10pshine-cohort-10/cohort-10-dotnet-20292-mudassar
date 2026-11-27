@@ -289,5 +289,74 @@ public sealed class TaskServiceTests : IAsyncLifetime, IDisposable
         Assert.Throws<ArgumentNullException>(() => new TaskService(null!, NullLogger<TaskService>.Instance));
         Assert.Throws<ArgumentNullException>(() => new TaskService(_db, null!));
     }
+
+    [Fact]
+    public async Task UpdateStatus_WhenStatusChanges_NotifiesRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(
+            new CreateTaskDto("Realtime Status Task", AssignedToId: _assignee.Id),
+            _owner.Id);
+
+        var updated = await sut.UpdateStatusAsync(created.Id, TaskItemStatus.InProgress, _assignee.Id, isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(
+                It.Is<TaskStatusUpdatedEvent>(e =>
+                    e.TaskId == created.Id &&
+                    e.OldStatus == TaskItemStatus.Pending &&
+                    e.NewStatus == TaskItemStatus.InProgress &&
+                    e.UpdatedById == _assignee.Id &&
+                    e.CreatedById == _owner.Id &&
+                    e.AssignedToId == _assignee.Id &&
+                    e.RowVersion == updated.RowVersion),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WhenStatusUnchanged_DoesNotNotifyRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(new CreateTaskDto("Noop Status Task"), _owner.Id);
+
+        await sut.UpdateStatusAsync(created.Id, TaskItemStatus.Pending, _owner.Id, isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(It.IsAny<TaskStatusUpdatedEvent>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task Update_WhenStatusChanges_NotifiesRealtimeSubscribers()
+    {
+        var notifier = new Mock<ITaskRealtimeNotifier>();
+        var sut = new TaskService(_db, NullLogger<TaskService>.Instance, notifier.Object);
+        var created = await sut.CreateAsync(
+            new CreateTaskDto("Edit Form Status Task", AssignedToId: _assignee.Id),
+            _owner.Id);
+
+        await sut.UpdateAsync(
+            created.Id,
+            new UpdateTaskDto(
+                Title: "Edit Form Status Task",
+                Status: TaskItemStatus.Completed,
+                Priority: TaskPriority.High,
+                AssignedToId: _assignee.Id,
+                RowVersion: created.RowVersion),
+            _owner.Id,
+            isAdmin: false);
+
+        notifier.Verify(
+            n => n.NotifyTaskStatusUpdatedAsync(
+                It.Is<TaskStatusUpdatedEvent>(e =>
+                    e.TaskId == created.Id &&
+                    e.OldStatus == TaskItemStatus.Pending &&
+                    e.NewStatus == TaskItemStatus.Completed),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
 }
 

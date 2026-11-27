@@ -32,13 +32,18 @@ public class TaskService : ITaskService
     private const string TaskNotFoundMessage = "Task was not found.";
     private readonly AppDbContext db;
     private readonly ILogger<TaskService> log;
+    private readonly ITaskRealtimeNotifier realtimeNotifier;
 
-    public TaskService(AppDbContext db, ILogger<TaskService> log)
+    public TaskService(
+        AppDbContext db,
+        ILogger<TaskService> log,
+        ITaskRealtimeNotifier? realtimeNotifier = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(log);
         this.db = db;
         this.log = log;
+        this.realtimeNotifier = realtimeNotifier ?? NullTaskRealtimeNotifier.Instance;
     }
 
     [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Query filter parameters with optional defaults for task listing.")]
@@ -218,7 +223,12 @@ public class TaskService : ITaskService
         await SaveWithConcurrencyGuardAsync(task.Id);
 
         log.LogInformation("User {UserId} updated task {TaskId}", userId, task.Id);
-        return await GetByIdAsync(task.Id, userId, isAdmin: true);
+        var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
+
+        if (oldStatus != updated.Status)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(CreateStatusUpdatedEvent(updated, oldStatus, userId));
+
+        return updated;
     }
 
     public async Task<TaskDto> UpdateStatusAsync(int id, TaskItemStatus status, Guid userId, bool isAdmin)
@@ -252,7 +262,12 @@ public class TaskService : ITaskService
             "User {UserId} changed task {TaskId} status from {OldStatus} to {NewStatus}",
             userId, task.Id, oldStatus, status);
 
-        return await GetByIdAsync(task.Id, userId, isAdmin: true);
+        var updated = await GetByIdAsync(task.Id, userId, isAdmin: true);
+
+        if (oldStatus != status)
+            await realtimeNotifier.NotifyTaskStatusUpdatedAsync(CreateStatusUpdatedEvent(updated, oldStatus, userId));
+
+        return updated;
     }
 
     public async Task DeleteAsync(int id, Guid userId, bool isAdmin)
@@ -331,6 +346,20 @@ public class TaskService : ITaskService
             throw new ConflictException("The task was modified by another user. Please reload and try again.");
         }
     }
+
+    private static TaskStatusUpdatedEvent CreateStatusUpdatedEvent(
+        TaskDto updated,
+        TaskItemStatus oldStatus,
+        Guid updatedById) => new(
+        updated.Id,
+        updated.Title,
+        oldStatus,
+        updated.Status,
+        updated.UpdatedAt ?? DateTime.UtcNow,
+        updated.RowVersion,
+        updatedById,
+        updated.CreatedById,
+        updated.AssignedToId);
 
     private static TaskDto MapToDto(TaskItem t) => new(
         t.Id,

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using TaskManager.Api.Data;
 using TaskManager.Api.Extensions;
+using TaskManager.Api.Hubs;
 using TaskManager.Api.Middleware;
 
 await EnvFileLoader.LoadAsync();
@@ -32,6 +33,8 @@ try
     // ---------- Services ----------
     builder.Services.AddControllers()
         .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+    builder.Services.AddSignalR()
+        .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddSwaggerWithJwt();
 
     builder.Services.AddDbContext<AppDbContext>(o =>
@@ -45,7 +48,7 @@ try
 
     var origins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? [];
     builder.Services.AddCors(o => o.AddPolicy("Frontend",
-        p => p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod()));
+        p => p.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
     builder.Services.AddAuth(builder.Configuration);
 
@@ -79,6 +82,7 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
+    app.MapHub<TaskHub>(TaskHub.HubPath);
     app.MapGet("/health", (ILogger<Program> logger) =>
         {
             logger.LogDebug("Health check probe executed");

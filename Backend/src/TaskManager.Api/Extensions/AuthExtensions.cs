@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using TaskManager.Api.Data;
 using TaskManager.Api.Entities;
+using TaskManager.Api.Hubs;
 using TaskManager.Api.Services;
 
 namespace TaskManager.Api.Extensions;
@@ -64,6 +65,17 @@ public static class AuthExtensions
                 };
                 o.Events = new JwtBearerEvents
                 {
+                    OnMessageReceived = ctx =>
+                    {
+                        var accessToken = ctx.Request.Query["access_token"];
+                        var path = ctx.HttpContext.Request.Path;
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                            path.StartsWithSegments(TaskHub.HubPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            ctx.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    },
                     OnTokenValidated = async ctx =>
                     {
                         var userIdStr = ctx.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -124,6 +136,7 @@ public static class AuthExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<ICategoryService, CategoryService>();
+        services.AddSingleton<ITaskRealtimeNotifier, SignalRTaskRealtimeNotifier>();
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IDashboardService, DashboardService>();
 

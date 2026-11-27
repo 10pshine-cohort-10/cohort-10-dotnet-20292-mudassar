@@ -229,16 +229,7 @@ dotnet ef database update --project Backend/src/TaskManager.Api
 
 ### Step 3: Run the Frontend (React + Vite)
 
-Because the Vite dev proxy connects to `https://localhost:5001` with TLS verification enabled, first trust and export the ASP.NET Core development certificate so Node trusts it (see the full Windows/macOS/Linux steps under **Local HTTPS Development Certificate** in `Frontend/README.md`):
-
-```powershell
-dotnet dev-certs https --trust
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aspnet\https" | Out-Null
-dotnet dev-certs https -ep "$env:USERPROFILE\.aspnet\https\dev-cert.pem" --format Pem --no-password
-$env:NODE_EXTRA_CA_CERTS = "$env:USERPROFILE\.aspnet\https\dev-cert.pem"
-```
-
-Then, in that terminal:
+In a second terminal:
 
 ```powershell
 cd Frontend
@@ -247,7 +238,7 @@ npm run dev
 ```
 
 - **Frontend URL:** `http://localhost:5173`
-- By default, Vite proxies `/api` requests to `https://localhost:5001` (configurable via `VITE_DEV_API_TARGET`, and the exported certificate can also be passed via `VITE_DEV_CA_CERT`).
+- By default, Vite proxies `/api` requests to `https://localhost:5001` (configurable via `VITE_DEV_API_TARGET`).
 
 ---
 
@@ -292,7 +283,7 @@ npm --prefix Frontend run build
 - **Optimistic Concurrency Protection:** Editing a task sends its `RowVersion` token; if another user modified the task first, the API returns `409 Conflict` (`ProblemDetails`) instead of silently overwriting changes.
 - **Ownership & Soft-Delete Guarantee:**
   - Standard users can view/update tasks they created or are assigned to, and only the creator or an `Admin` can delete a task.
-  - Deleting a tracked `TaskItem` saved through `AppDbContext.SaveChanges` / `SaveChangesAsync` **never physically removes the row** — `ConvertTaskDeletesToSoftDelete` marks `IsDeleted = true`, records `DeletedAt`, hides it via EF Core global query filters, and preserves associated `TaskComments` and `TaskHistories`. Note that bulk `ExecuteDelete` / `ExecuteDeleteAsync` calls and raw SQL statements bypass `SaveChanges` and therefore bypass this soft-delete guarantee.
+  - Deleting a task **never physically removes the row** through `AppDbContext` — `ConvertTaskDeletesToSoftDelete` marks `IsDeleted = true`, records `DeletedAt`, hides it via EF Core global query filters, and preserves associated `TaskComments` and `TaskHistories`.
 
 ### 4. Profile & Theme Preferences (`/profile` & Navbar)
 - **Profile View & Inline Name Update:** Displays user avatar initials, full name, email, assigned roles, active status, and user ID. Users can edit and save their display name (`PUT /api/auth/me`) with inline validation and session-bound save protection.

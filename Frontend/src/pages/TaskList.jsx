@@ -6,7 +6,9 @@ import { getCategories } from "../api/categoriesApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
 import { deletePageCacheByPrefix, getPageCache, setPageCache } from "../utils/pageCache";
+import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import PageHeader from "../components/PageHeader";
+import LiveBadge from "../components/LiveBadge";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -62,6 +64,44 @@ const invalidateOwnerCaches = (owner) => {
   deletePageCacheByPrefix(`tasks:${owner}:`);
   deletePageCacheByPrefix(`dashboard:${owner}`);
 };
+
+function applyRealtimeTaskStatusUpdate(prev, event, statusFilter) {
+  const prevItems = prev.items ?? [];
+  const hasTask = prevItems.some((item) => item.id === event.taskId);
+  const matchesFilter = !statusFilter || event.newStatus === statusFilter;
+
+  if (!hasTask) {
+    return { next: prev, needsReload: Boolean(statusFilter && matchesFilter) };
+  }
+
+  if (!matchesFilter) {
+    return {
+      next: {
+        ...prev,
+        items: prevItems.filter((item) => item.id !== event.taskId),
+        totalCount: Math.max(0, (prev.totalCount || 0) - 1),
+      },
+      needsReload: true,
+    };
+  }
+
+  return {
+    next: {
+      ...prev,
+      items: prevItems.map((item) =>
+        item.id === event.taskId
+          ? {
+              ...item,
+              status: event.newStatus,
+              updatedAt: event.updatedAt ?? item.updatedAt,
+              rowVersion: event.rowVersion ?? item.rowVersion,
+            }
+          : item
+      ),
+    },
+    needsReload: false,
+  };
+}
 
 function CategoryErrorAlert({ categoryError, retryingCategories, onRetry }) {
   if (!categoryError) return null;
@@ -345,6 +385,28 @@ export default function TaskList() {
   const canReloadForOwner = (owner) =>
     isMountedRef.current && currentOwnerRef.current === owner;
 
+  const handleRealtimeStatusUpdate = useCallback(
+    (event) => {
+      if (!isMountedRef.current || !event?.taskId) return;
+      invalidateOwnerCaches(currentOwnerRef.current);
+
+      let needsReload = false;
+      setData((prev) => {
+        const result = applyRealtimeTaskStatusUpdate(prev, event, statusFilter);
+        needsReload = result.needsReload;
+        return result.next;
+      });
+
+      if (needsReload) {
+        requestGenRef.current += 1;
+        void loadRef.current();
+      }
+    },
+    [statusFilter]
+  );
+
+  const realtimeState = useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate);
+
   const handleStatusChange = async (task, newStatus) => {
     if (pendingStatusIds.has(task.id)) return;
     const originatingCacheKey = cacheKeyRef.current;
@@ -430,7 +492,12 @@ export default function TaskList() {
       <PageHeader
         title="Tasks"
         subtitle={isAdmin ? "Manage all tasks across the workspace" : "Create, track, and update your tasks"}
-        actions={<Link to="/tasks/new" className="btn-primary">+ New Task</Link>}
+        actions={
+          <div className="row-actions">
+            <LiveBadge state={realtimeState} />
+            <Link to="/tasks/new" className="btn-primary">+ New Task</Link>
+          </div>
+        }
       />
 
       <ErrorAlert message={error} onClose={() => setError("")} />

@@ -5,6 +5,7 @@ import { deleteTask, getTaskById, updateTaskStatus } from "../api/tasksApi";
 import { getErrorMessage } from "../utils/errorMessage";
 import { formatDueDate } from "../utils/formatDate";
 import { deletePageCacheByPrefix } from "../utils/pageCache";
+import { useTaskStatusRealtime } from "../realtime/taskHubClient";
 import ErrorAlert from "../components/ErrorAlert";
 import StatusBadge from "../components/StatusBadge";
 import PriorityBadge from "../components/PriorityBadge";
@@ -64,11 +65,31 @@ export default function TaskDetail() {
     };
   }, [load]);
 
-  const invalidateTaskCaches = () => {
+  const invalidateTaskCaches = useCallback(() => {
     const userIdKey = user?.id ?? "anon";
     deletePageCacheByPrefix(`tasks:${userIdKey}:`);
     deletePageCacheByPrefix(`dashboard:${userIdKey}`);
-  };
+  }, [user?.id]);
+
+  const handleRealtimeStatusUpdate = useCallback(
+    (event) => {
+      if (!event?.taskId || event.taskId !== Number(activeIdRef.current)) return;
+      invalidateTaskCaches();
+      setTask((prev) =>
+        prev && prev.id === event.taskId
+          ? {
+              ...prev,
+              status: event.newStatus,
+              updatedAt: event.updatedAt ?? prev.updatedAt,
+              rowVersion: event.rowVersion ?? prev.rowVersion,
+            }
+          : prev
+      );
+    },
+    [invalidateTaskCaches]
+  );
+
+  useTaskStatusRealtime(user?.id, handleRealtimeStatusUpdate);
 
   const handleStatusChange = async (newStatus) => {
     if (!task || updatingStatus || deleting) return;

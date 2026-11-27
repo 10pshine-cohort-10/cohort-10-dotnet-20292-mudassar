@@ -147,4 +147,6 @@ tbody tr:focus-within{outline:2px solid var(--cobalt);outline-offset:-2px}
   .user{margin:10px 0 0;padding-top:12px;border-top:1px solid var(--line);justify-content:space-between}
   .nav-in{gap:12px}
 }
+.live-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:.75rem;font-weight:600;color:var(--ok);background:var(--ok-bg);border:1px solid var(--border)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
 @media (prefers-reduced-motion:reduce){.skel{animation:none}.scard{transition:none}}
